@@ -43,8 +43,8 @@ describe("Sakura gradient", () => {
 			tier: "warning",
 		});
 		expect(rendered).toContain("\x1b[38;2;");
-		expect(visibleWidth(rendered)).toBe(23);
-		expect(rendered).toContain("75.0%/100k");
+		expect(visibleWidth(rendered)).toBe(21);
+		expect(rendered).toContain("75%/100k");
 	});
 
 	it("returns the sakura color to both frame edges", () => {

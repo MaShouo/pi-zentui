@@ -323,10 +323,15 @@ export function installFooter(
 					contextPercent,
 					config.components.footer.styles.starship.contextThresholds,
 				);
+				const configuredContextStyle = config.components.footer.styles.starship.contextStyle;
+				const contextStyle =
+					sakuraVisuals && configuredContextStyle === "text"
+						? "text+gauge"
+						: configuredContextStyle;
 				const contextLabel = buildContextDisplayLabel({
 					percent: contextPercent,
 					contextWindow,
-					style: config.components.footer.styles.starship.contextStyle,
+					style: contextStyle,
 					asciiGauge: iconMode === "ascii",
 					sakura: sakuraVisuals,
 					phase,
@@ -345,7 +350,7 @@ export function installFooter(
 							contextColor,
 							contextLabel,
 							iconMode === "ascii",
-							config.components.footer.styles.starship.contextStyle,
+							contextStyle,
 						)
 					: renderStyleForSource(theme, colorSource, contextColor, contextLabel);
 				const cacheReadLabel = state.cacheReadLabel

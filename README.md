@@ -2,13 +2,13 @@
 
 A Sakura Macaron visual pack for [Pi](https://pi.dev), built on the full Zentui experience.
 
-This package keeps Zentui's editor, user-message, footer, configuration, and fixed-editor capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, gradient chrome, tool cards, and thinking trails.
+This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, gradient chrome, tool cards, and thinking trails.
 
 ## What's inside
 
 | Piece | Role |
 | --- | --- |
-| **Zentui** | Upstream editor, user-message styles, Starship footer, and optional fixed editor |
+| **Zentui** | Upstream editor, user-message styles, and Starship footer |
 | **Theme** `sakura-macaron` | Truecolor Sakura, peach, lavender, sky, mint, butter, and coral palette |
 | **Header** | Responsive Sakura Cyberdeck startup art |
 | **Matrix** | Pastel digital-rain widget shown while Pi is working |
@@ -578,7 +578,7 @@ The minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-cust
 
 ## Conflicts
 
-Do not stack this package with stock `pi-zentui`, `pi-powerline-footer`, `@tifan/pi-fixed-editor`, `pi-sticky-input`, or stock `pi-claude-shimmer`. They patch or replace the same Pi UI surfaces.
+Do not stack this package with stock `pi-zentui`, `pi-powerline-footer`, `pi-sticky-input`, or stock `pi-claude-shimmer`. They patch or replace the same Pi UI surfaces.
 
 `dual-quota` is intentionally not included. Third-party status extensions still work through Zentui's normal `ctx.ui.setStatus()` integration.
 

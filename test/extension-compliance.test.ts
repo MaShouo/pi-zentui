@@ -3120,7 +3120,9 @@ describe("Pi docs compliance", () => {
 				getExtensionStatuses: () => new Map<string, string>(),
 			});
 
-			expect(footer?.render(80).length).toBeGreaterThan(0);
+			const rendered = footer?.render(80).join("\n") ?? "";
+			const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+			expect(plain).toContain("[░░░░░░░░░░] 1%/200k");
 			vi.advanceTimersByTime(1000);
 			expect(requestRender).not.toHaveBeenCalled();
 			expect(vi.getTimerCount()).toBe(0);

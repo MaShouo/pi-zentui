@@ -345,12 +345,14 @@ export function buildContextGauge(
 export function formatContextPercentLabel(
 	percent: number | null | undefined,
 	contextWindow: number | undefined,
+	fractionDigits = 1,
 ): string {
 	if (!contextWindow || contextWindow <= 0) return "--";
-	const percentLabel =
-		percent === null || percent === undefined || !Number.isFinite(percent)
-			? "?"
-			: `${Math.max(0, Math.min(999, percent)).toFixed(1)}%`;
+	const percentLabel = (() => {
+		if (percent === null || percent === undefined || !Number.isFinite(percent)) return "?";
+		const clamped = Math.max(0, Math.min(999, percent));
+		return fractionDigits <= 0 ? `${Math.round(clamped)}%` : `${clamped.toFixed(fractionDigits)}%`;
+	})();
 	return `${percentLabel}/${formatCount(contextWindow)}`;
 }
 
@@ -374,7 +376,7 @@ export function buildContextDisplayLabel(options: {
 	} = options;
 	if (!contextWindow || contextWindow <= 0) return "--";
 
-	const text = formatContextPercentLabel(percent, contextWindow);
+	const text = formatContextPercentLabel(percent, contextWindow, sakura ? 0 : 1);
 	const numericPercent =
 		percent === null || percent === undefined || !Number.isFinite(percent)
 			? 0
