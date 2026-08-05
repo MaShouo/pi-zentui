@@ -4,6 +4,7 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { ZentuiConfig } from "./config";
+import { isSakuraMacaronVisuals, renderSakuraFrameGradient } from "./gradient";
 import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, renderEditorBorder } from "./style";
 
@@ -28,6 +29,9 @@ function renderBorderLine(
 ): string {
 	const text = "─".repeat(Math.max(1, width));
 	if (theme && config) {
+		if (isSakuraMacaronVisuals(config.colors.editorBorder, theme)) {
+			return renderSakuraFrameGradient(text);
+		}
 		return renderChromeBorder(
 			theme,
 			config.components.selectorBorders.colorSource,

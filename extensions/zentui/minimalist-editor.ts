@@ -4,6 +4,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { buildContextGauge, contextColorTier, formatCount, formatCwdLabel } from "./format";
+import { isSakuraMacaronVisuals, renderSakuraFrameGradient } from "./gradient";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -263,7 +264,8 @@ function minimalistCwdLabel(metadata: MinimalistEditorMetadata, config: ZentuiCo
 		return full();
 	}
 	const project = basename(metadata.projectRoot) || metadata.projectRoot;
-	return pathFromRoot ? `${project}/${pathFromRoot}` : project;
+	const displayPathFromRoot = pathFromRoot.split(sep).join("/");
+	return displayPathFromRoot ? `${project}/${displayPathFromRoot}` : project;
 }
 
 function renderBottomRight(
@@ -356,13 +358,15 @@ export function renderMinimalistFrame({
 	if (width <= 4) return clampLines(editorLines, width);
 	const contentWidth = Math.max(0, width - 4);
 	const renderStaticBorder = (text: string) =>
-		renderStyleForSourceOrFallback(
-			uiTheme,
-			config.components.editor.colorSource,
-			config.colors.editorBorder,
-			EDITOR_BORDER_FALLBACK,
-			text,
-		);
+		isSakuraMacaronVisuals(config.colors.editorBorder, uiTheme)
+			? renderSakuraFrameGradient(text)
+			: renderStyleForSourceOrFallback(
+					uiTheme,
+					config.components.editor.colorSource,
+					config.colors.editorBorder,
+					EDITOR_BORDER_FALLBACK,
+					text,
+				);
 	const renderBorder = (text: string) => {
 		if (config.components.editor.borderColorMode !== "adaptive" || !borderColor) {
 			return renderStaticBorder(text);

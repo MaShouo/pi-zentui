@@ -48,6 +48,7 @@ import { installFooter, installHiddenFooter } from "./footer";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
+import { isSakuraMacaronVisuals } from "./gradient";
 import { LiveContextController } from "./live-context";
 import { readPackageVersionResult } from "./package-version";
 import {
@@ -64,6 +65,8 @@ import { SessionLifecycle } from "./session-lifecycle";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { createInitialState, type FooterState, modelLabelFor, syncState } from "./state";
 import { resolveFooterTelemetry } from "./telemetry";
+import { installThinkingMessageStyle } from "./thinking-message";
+import { installToolExecutionStyle } from "./tool-execution";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
 
@@ -173,6 +176,8 @@ export default function (pi: ExtensionAPI) {
 	let userMessageStyleInstalled = false;
 	let cleanupSelectorBorderStyle: () => void = () => {};
 	let selectorBorderStyleInstalled = false;
+	let cleanupSakuraVisuals: () => void = () => {};
+	let sakuraVisualsInstalled = false;
 	let installedFooterKind: InstalledFooterKind | undefined;
 	let installedFooterToken: symbol | undefined;
 	let editorInstalled = false;
@@ -235,6 +240,8 @@ export default function (pi: ExtensionAPI) {
 	const liveContext = new LiveContextController(sessionLifecycle, refresh);
 	const getActiveTheme = () => activeTheme;
 	const getCurrentConfig = () => currentConfig;
+	const isSakuraVisualEnabled = () =>
+		isSakuraMacaronVisuals(currentConfig.colors.editorBorder, activeTheme);
 	const getContextWindow = (ctx: ExtensionContext): number | undefined =>
 		ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow;
 	const getContextPercent = (ctx: ExtensionContext): number | undefined => {
@@ -554,6 +561,39 @@ export default function (pi: ExtensionAPI) {
 		if (effectiveSelectorBordersEnabled() && selectors.style === "zentui") {
 			installSelectorBorders();
 		} else uninstallSelectorBorders();
+	};
+
+	const installSakuraVisuals = () => {
+		if (sakuraVisualsInstalled) return;
+		let cleanupTools: (() => void) | undefined;
+		try {
+			cleanupTools = installToolExecutionStyle(getActiveTheme, isSakuraVisualEnabled);
+			const cleanupThinking = installThinkingMessageStyle(getActiveTheme, isSakuraVisualEnabled);
+			cleanupSakuraVisuals = () => {
+				cleanupThinking();
+				cleanupTools?.();
+			};
+			sakuraVisualsInstalled = true;
+		} catch {
+			try {
+				cleanupTools?.();
+			} catch {
+				// Best effort: installers are independently transactional.
+			}
+			cleanupSakuraVisuals = () => {};
+			sakuraVisualsInstalled = false;
+		}
+	};
+
+	const uninstallSakuraVisuals = () => {
+		try {
+			cleanupSakuraVisuals();
+		} catch {
+			// Best effort cleanup.
+		} finally {
+			cleanupSakuraVisuals = () => {};
+			sakuraVisualsInstalled = false;
+		}
 	};
 
 	const clearEditorOwnership = () => {
@@ -927,6 +967,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		reconcileUserMessages();
 		reconcileSelectorBorders();
+		installSakuraVisuals();
 		reconcileFooter(ctx);
 		reconcileProjectRefresh(ctx);
 		reconcileSessionTimer();
@@ -947,6 +988,7 @@ export default function (pi: ExtensionAPI) {
 
 		uninstallUserMessages();
 		uninstallSelectorBorders();
+		uninstallSakuraVisuals();
 		try {
 			removeUserMessageStyle();
 		} catch {
@@ -1028,6 +1070,7 @@ export default function (pi: ExtensionAPI) {
 		if (!retainedEditorOwnership) clearEditorOwnership();
 		uninstallUserMessages();
 		uninstallSelectorBorders();
+		uninstallSakuraVisuals();
 		installedFooterKind = undefined;
 		installedFooterToken = undefined;
 		requestFooterRender = undefined;

@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { EditorStyle, ZentuiConfig } from "./config";
 import { renderEditorMetadataFormat } from "./editor-metadata-format";
+import { isSakuraMacaronVisuals, renderSakuraFrameGradient, renderSakuraSolid } from "./gradient";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
 	EDITOR_ACCENT_FALLBACK,
@@ -306,11 +307,18 @@ function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: stri
 				EDITOR_ACCENT_FALLBACK,
 				config.icons.rail,
 			)}${reset} `;
+	const rightRail =
+		!lowRail &&
+		config.icons.rail.length > 0 &&
+		isSakuraMacaronVisuals(config.colors.editorBorder, uiTheme)
+			? ` ${renderSakuraSolid(config.icons.rail)}`
+			: "";
 	return {
 		prompt,
 		promptWidth: visibleWidth(prompt),
 		rail,
-		railWidth: lowRail ? visibleWidth(prompt) : visibleWidth(rail),
+		rightRail,
+		railWidth: lowRail ? visibleWidth(prompt) : visibleWidth(rail) + visibleWidth(rightRail),
 	};
 }
 
@@ -544,7 +552,11 @@ function renderPolishedFrame({
 
 	const reset = "\x1b[0m";
 	const colorSource = config.components.editor.colorSource;
-	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
+	const { prompt, promptWidth, rail, rightRail, railWidth } = getEditorChromeWidths(
+		config,
+		uiTheme,
+		reset,
+	);
 	const innerWidth = Math.max(0, width - railWidth);
 	const lowRailContinuation = " ".repeat(promptWidth);
 
@@ -602,13 +614,15 @@ function renderPolishedFrame({
 	const railedMeta = composeMetadataLine(meta, rightStatus, innerWidth);
 
 	const renderStaticBorder = (text: string) =>
-		renderStyleForSourceOrFallback(
-			uiTheme,
-			colorSource,
-			config.colors.editorBorder,
-			EDITOR_BORDER_FALLBACK,
-			text,
-		);
+		isSakuraMacaronVisuals(config.colors.editorBorder, uiTheme)
+			? renderSakuraFrameGradient(text)
+			: renderStyleForSourceOrFallback(
+					uiTheme,
+					colorSource,
+					config.colors.editorBorder,
+					EDITOR_BORDER_FALLBACK,
+					text,
+				);
 	const renderBorder = (text: string) => {
 		if (
 			config.components.editor.borderColorMode !== "adaptive" ||
@@ -653,7 +667,7 @@ function renderPolishedFrame({
 			]
 		: [
 				top,
-				...lines.map((line) => `${rail}${fillLine(line, innerWidth)}`),
+				...lines.map((line) => `${rail}${fillLine(line, innerWidth)}${rightRail}`),
 				bottom,
 				...autocompleteLines,
 			];

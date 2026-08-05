@@ -1,5 +1,6 @@
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ColorSource, ColorSpec } from "./config";
+import { SAKURA_MACARON_GRADIENT } from "./gradient";
 
 type ThemeLike = {
 	fg(color: string, text: string): string;
@@ -183,6 +184,7 @@ function isSupportedStyleToken(token: string): boolean {
 
 export function isSupportedColorSpec(style: ColorSpec): boolean {
 	const trimmed = style.trim();
+	if (trimmed === SAKURA_MACARON_GRADIENT) return true;
 	if (trimmed === "") return true;
 	return trimmed.split(/\s+/).every(isSupportedStyleToken);
 }

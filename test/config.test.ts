@@ -2487,7 +2487,9 @@ describe("startup and file safety", () => {
 		withConfig({ separator: "pipe" }, (path, dir) => {
 			chmodSync(path, 0o600);
 			saveSeparatorPatch("dot", path);
-			expect(statSync(path).mode & 0o777).toBe(0o600);
+			if (process.platform !== "win32") {
+				expect(statSync(path).mode & 0o777).toBe(0o600);
+			}
 			expect(readRaw(path).components.footer.styles.starship.separator).toBe("dot");
 			expect(configTempFiles(dir)).toEqual([]);
 		});
@@ -2511,7 +2513,9 @@ describe("startup and file safety", () => {
 			expect(raw.unknown).toBe(true);
 			expect(raw.components.footer.styles.starship.separator).toBe("chevron");
 			expect(config).toEqual(mergeConfig(raw));
-			expect(statSync(targetPath).mode & 0o777).toBe(0o600);
+			if (process.platform !== "win32") {
+				expect(statSync(targetPath).mode & 0o777).toBe(0o600);
+			}
 			expect(configTempFiles(targetDir, "actual.json")).toEqual([]);
 			expect(configTempFiles(dir)).toEqual([]);
 		} finally {

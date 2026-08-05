@@ -10,6 +10,7 @@ import type {
 	PathDisplayMode,
 } from "./config";
 import type { GitCommitInfo, GitMetricsInfo } from "./git";
+import { renderMacaronGauge } from "./gradient";
 import type { IconMode } from "./icons";
 import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons";
 import type { PackageVersionResult } from "./package-version";
@@ -320,8 +321,21 @@ export function contextColorTier(
 	return "normal";
 }
 
-export function buildContextGauge(percent: number, width = 10, ascii = false): string {
+export function buildContextGauge(
+	percent: number,
+	width = 10,
+	ascii = false,
+	options: { sakura?: boolean; phase?: number; tier?: ContextColorTier } = {},
+): string {
 	const clamped = Math.max(0, Math.min(100, percent));
+	if (options.sakura) {
+		return renderMacaronGauge(clamped, width, {
+			ascii,
+			phase: options.phase,
+			frame: false,
+			tier: options.tier,
+		});
+	}
 	const filled = Math.round((clamped / 100) * width);
 	const on = ascii ? "#" : "█";
 	const off = ascii ? "-" : "░";
@@ -345,8 +359,19 @@ export function buildContextDisplayLabel(options: {
 	contextWindow: number | undefined;
 	style?: ContextStyle;
 	asciiGauge?: boolean;
+	sakura?: boolean;
+	phase?: number;
+	tier?: ContextColorTier;
 }): string {
-	const { percent, contextWindow, style = "text", asciiGauge = false } = options;
+	const {
+		percent,
+		contextWindow,
+		style = "text",
+		asciiGauge = false,
+		sakura = false,
+		phase,
+		tier = "normal",
+	} = options;
 	if (!contextWindow || contextWindow <= 0) return "--";
 
 	const text = formatContextPercentLabel(percent, contextWindow);
@@ -354,7 +379,11 @@ export function buildContextDisplayLabel(options: {
 		percent === null || percent === undefined || !Number.isFinite(percent)
 			? 0
 			: Math.max(0, Math.min(100, percent));
-	const gauge = buildContextGauge(numericPercent, 10, asciiGauge);
+	const gauge = buildContextGauge(numericPercent, 10, asciiGauge, {
+		sakura,
+		phase,
+		tier,
+	});
 
 	if (style === "gauge") return `[${gauge}]`;
 	if (style === "text+gauge") return `[${gauge}] ${text}`;

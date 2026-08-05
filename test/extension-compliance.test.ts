@@ -3095,6 +3095,41 @@ describe("Pi docs compliance", () => {
 		expect(footer?.render(80).length).toBeGreaterThan(0);
 	});
 
+	it("keeps the Sakura footer passive between renders for stable IME preedit", () => {
+		vi.useFakeTimers();
+		let footer: ReturnType<FooterFactory> | undefined;
+		try {
+			let footerFactory: FooterFactory | undefined;
+			const sakuraTheme = Object.assign(makeTheme(), { name: "sakura-macaron" }) as Theme;
+			const ctx = makeContext({
+				ui: {
+					theme: sakuraTheme,
+					setFooter(factory: FooterFactory | undefined) {
+						footerFactory = factory;
+					},
+					setEditorComponent() {},
+				},
+			});
+			installFooter(ctx as never, createInitialState(emptyGitStatus()), () => defaultConfig, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const requestRender = vi.fn();
+			footer = footerFactory?.({ requestRender }, sakuraTheme, {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map<string, string>(),
+			});
+
+			expect(footer?.render(80).length).toBeGreaterThan(0);
+			vi.advanceTimersByTime(1000);
+			expect(requestRender).not.toHaveBeenCalled();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			footer?.dispose?.();
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps the production footer visible while the minimalist editor decorates", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
@@ -4465,6 +4500,29 @@ describe("Pi docs compliance", () => {
 		expect(renderFor(0, 0)).not.toContain("+0");
 		expect(renderFor(0, 0)).not.toContain("−0");
 	});
+	it("closes Sakura opencode editor rows with a width-stable right rail", () => {
+		const sakuraTheme = Object.assign(makeTheme(), { name: "sakura-macaron" }) as Theme;
+		const editor = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			sakuraTheme,
+			() => defaultConfig,
+			() => ({ modelLabel: "gpt-5.6", providerLabel: "Codex" }),
+			() => "xhigh",
+		);
+		editor.setText("draft");
+
+		const lines = editor.render(48);
+		const body = lines.slice(1, -1);
+		expect(body.length).toBeGreaterThan(0);
+		expect(lines.every((line) => visibleWidth(line) === 48)).toBe(true);
+		for (const line of body) {
+			const plain = line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+			expect(plain.endsWith("│")).toBe(true);
+		}
+	});
+
 	it("renders editor rails with theme accent and borderMuted borders", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,

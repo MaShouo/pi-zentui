@@ -7,6 +7,11 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ZentuiConfig } from "./config";
 import {
+	isSakuraMacaronVisuals,
+	renderSakuraFrameGradient,
+	renderSakuraGradient,
+} from "./gradient";
+import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallbackStrict,
@@ -61,6 +66,7 @@ function fillLine(content: string, width: number): string {
 }
 
 function accent(theme: Theme | undefined, config: ZentuiConfig, text: string): string {
+	if (isSakuraMacaronVisuals(config.colors.editorBorder, theme)) return renderSakuraGradient(text);
 	return theme
 		? renderStyleForSourceOrFallbackStrict(
 				theme,
@@ -73,6 +79,9 @@ function accent(theme: Theme | undefined, config: ZentuiConfig, text: string): s
 }
 
 function border(theme: Theme | undefined, config: ZentuiConfig, text: string): string {
+	if (isSakuraMacaronVisuals(config.colors.editorBorder, theme)) {
+		return renderSakuraFrameGradient(text);
+	}
 	return theme
 		? renderStyleForSourceOrFallbackStrict(
 				theme,

@@ -1,0 +1,13 @@
+This package is based on pi-zentui by Luka.
+Original project: https://github.com/lmilojevicc/pi-zentui
+License: MIT. Full license text: licenses/pi-zentui-MIT.txt
+
+It also includes modified Sakura-macaron code derived from pi-claude-shimmer
+by ouzhenkun.
+Original project: https://github.com/ouzhenkun/pi-claude-shimmer
+License: MIT. Full license text: licenses/pi-claude-shimmer-MIT.txt
+
+Sakura additions include the Sakura Macaron theme, header, Matrix widget, and
+Sakura-macaron shimmer styling. The embedded Zentui implementation remains the
+package baseline; this package does not include a nested modified copy of
+pi-zentui.

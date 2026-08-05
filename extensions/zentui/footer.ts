@@ -36,10 +36,34 @@ import {
 	formatTimeLabel,
 	formatUsernameHostLabel,
 } from "./format";
+import { isSakuraMacaronVisuals, pulsePhase, renderSakuraGradient } from "./gradient";
 import { resolveRuntimeSymbol } from "./icons";
 import type { LiveContextOverride } from "./live-context";
 import { type FooterState, modelLabelFor } from "./state";
 import { renderStyleForSource } from "./style";
+
+function styleSakuraContextSegment(
+	theme: Parameters<typeof renderStyleForSource>[0],
+	colorSource: Parameters<typeof renderStyleForSource>[1],
+	contextColor: Parameters<typeof renderStyleForSource>[2],
+	label: string,
+	asciiGauge: boolean,
+	style: string,
+): string {
+	if (!label || label === "--") {
+		return renderStyleForSource(theme, colorSource, contextColor, label || "--");
+	}
+	// The truecolor gauge carries its own palette; only tint brackets and trailing text.
+	if (!asciiGauge && (style === "gauge" || style === "text+gauge")) {
+		const split = label.match(/^(\[[\s\S]*?\])(\s*)(.*)$/);
+		if (split) {
+			const [, gaugePart, gap, rest] = split;
+			const tintedRest = rest ? renderStyleForSource(theme, colorSource, contextColor, rest) : "";
+			return `${gaugePart}${gap}${tintedRest}`;
+		}
+	}
+	return renderStyleForSource(theme, colorSource, contextColor, label);
+}
 
 const separatorText: Record<SeparatorStyle, string> = {
 	pipe: " | ",
@@ -226,7 +250,9 @@ export function installFooter(
 					FOOTER_FORMAT_ALIASES,
 				);
 				const colorSource = config.components.footer.colorSource;
+				const sakuraVisuals = isSakuraMacaronVisuals(config.colors.editorBorder, theme);
 				const iconMode = config.icons.mode;
+				const phase = pulsePhase();
 				const formattedCwd = sanitizeEditorMetadataText(
 					formatCwdLabel(ctx.cwd, config.icons.cwd, {
 						mode: config.components.footer.styles.starship.pathDisplay.mode,
@@ -256,14 +282,17 @@ export function installFooter(
 							version: sanitizeEditorMetadataText(state.packageVersion.version),
 						}
 					: undefined;
-				const separator = renderStyleForSource(
-					theme,
-					colorSource,
-					config.colors.separator,
-					separatorText[config.components.footer.styles.starship.separator],
-				);
+				const separatorRaw = separatorText[config.components.footer.styles.starship.separator];
+				const separator = sakuraVisuals
+					? config.components.footer.styles.starship.separator === "none"
+						? separatorRaw
+						: renderSakuraGradient(separatorRaw, phase * 0.5)
+					: renderStyleForSource(theme, colorSource, config.colors.separator, separatorRaw);
 				const innerWidth = Math.max(1, width - 2);
-				const cwdLabel = renderStyleForSource(theme, colorSource, config.colors.cwd, formattedCwd);
+				const cwdLabel =
+					sakuraVisuals && iconMode !== "ascii"
+						? renderSakuraGradient(formattedCwd, phase * 0.25)
+						: renderStyleForSource(theme, colorSource, config.colors.cwd, formattedCwd);
 				const needsSessionName =
 					(config.components.footer.styles.starship.format
 						? wideReferences.has("session_name")
@@ -290,22 +319,35 @@ export function installFooter(
 				const contextPercent = useLiveContext
 					? (liveContext.tokens / contextWindow) * 100
 					: contextUsage?.percent;
+				const tier = contextColorTier(
+					contextPercent,
+					config.components.footer.styles.starship.contextThresholds,
+				);
 				const contextLabel = buildContextDisplayLabel({
 					percent: contextPercent,
 					contextWindow,
 					style: config.components.footer.styles.starship.contextStyle,
 					asciiGauge: iconMode === "ascii",
+					sakura: sakuraVisuals,
+					phase,
+					tier,
 				});
-				const tier = contextColorTier(
-					contextPercent,
-					config.components.footer.styles.starship.contextThresholds,
-				);
 				const contextColor =
 					tier === "error"
 						? config.colors.contextError
 						: tier === "warning"
 							? config.colors.contextWarning
 							: config.colors.contextNormal;
+				const styledContextLabel = sakuraVisuals
+					? styleSakuraContextSegment(
+							theme,
+							colorSource,
+							contextColor,
+							contextLabel,
+							iconMode === "ascii",
+							config.components.footer.styles.starship.contextStyle,
+						)
+					: renderStyleForSource(theme, colorSource, contextColor, contextLabel);
 				const cacheReadLabel = state.cacheReadLabel
 					? renderStyleForSource(theme, colorSource, config.colors.tokens, state.cacheReadLabel)
 					: "";
@@ -398,13 +440,12 @@ export function installFooter(
 								config.colors.username,
 								formatUsernameHostLabel(config.icons.username),
 							);
-						case "os":
-							return renderStyleForSource(
-								theme,
-								colorSource,
-								config.colors.os,
-								formatOsLabel(config.icons.os, iconMode),
-							);
+						case "os": {
+							const osLabel = formatOsLabel(config.icons.os, iconMode);
+							return sakuraVisuals && iconMode !== "ascii"
+								? renderSakuraGradient(osLabel, (phase + 0.4) % 1)
+								: renderStyleForSource(theme, colorSource, config.colors.os, osLabel);
+						}
 						case "time":
 							return renderStyleForSource(
 								theme,
@@ -413,7 +454,7 @@ export function installFooter(
 								formatTimeLabel(config.icons.time),
 							);
 						case "context":
-							return renderStyleForSource(theme, colorSource, contextColor, contextLabel);
+							return styledContextLabel;
 						case "tokens":
 							return renderStyleForSource(
 								theme,
@@ -591,13 +632,11 @@ export function installFooter(
 							formatUsernameHostLabel(config.icons.username),
 						)
 					: "";
+				const osPlain = formatOsLabel(config.icons.os, iconMode);
 				const osSegment = config.components.footer.styles.starship.segments.os
-					? renderStyleForSource(
-							theme,
-							colorSource,
-							config.colors.os,
-							formatOsLabel(config.icons.os, iconMode),
-						)
+					? sakuraVisuals && iconMode !== "ascii"
+						? renderSakuraGradient(osPlain, (phase + 0.4) % 1)
+						: renderStyleForSource(theme, colorSource, config.colors.os, osPlain)
 					: "";
 				const left = [
 					osSegment,
@@ -630,10 +669,7 @@ export function installFooter(
 							formatTimeLabel(config.icons.time),
 						)
 					: "";
-				const builtInContextLabel = [
-					renderStyleForSource(theme, colorSource, contextColor, contextLabel),
-					autoCompactionLabel,
-				]
+				const builtInContextLabel = [styledContextLabel, autoCompactionLabel]
 					.filter(Boolean)
 					.join(" ");
 				const builtInTokenLabel = [

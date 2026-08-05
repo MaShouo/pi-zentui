@@ -1,12 +1,37 @@
-# Zentui
+# Sakura Cyberdeck
 
-A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
+A Sakura Macaron visual pack for [Pi](https://pi.dev), built on the full Zentui experience.
 
-## Screenshots
+This package keeps Zentui's editor, user-message, footer, configuration, and fixed-editor capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, gradient chrome, tool cards, and thinking trails.
 
-![Screenshot of Zentui with a framed user message, spacious Opencode Editor, model metadata, and Starship Footer.](./assets/main-cover.png)
+## What's inside
 
-## What is this?
+| Piece | Role |
+| --- | --- |
+| **Zentui** | Upstream editor, user-message styles, Starship footer, and optional fixed editor |
+| **Theme** `sakura-macaron` | Truecolor Sakura, peach, lavender, sky, mint, butter, and coral palette |
+| **Header** | Responsive Sakura Cyberdeck startup art |
+| **Matrix** | Pastel digital-rain widget shown while Pi is working |
+| **Claude shimmer** | Working spinner with macaron sweep, effort HUD, tokens, and elapsed time |
+| **Transcript chrome** | Sakura tool cards and compact thinking trails |
+
+Matrix owns only its widget. Claude shimmer exclusively owns Pi's working message and indicator, so both can remain enabled without overwriting each other.
+
+## Quick start
+
+```bash
+pi install git:github.com/MaShouo/pi-zentui
+```
+
+For a local checkout:
+
+```bash
+pi install /path/to/pi-sakura-cyberdeck
+```
+
+Select **sakura-macaron** from `/settings`, then restart Pi once. Use `/zentui` for editor, message, footer, and layout settings, and `/sakura-matrix on|off` for the Matrix widget.
+
+## Zentui foundation
 
 Zentui styles three major Pi surfaces independently:
 
@@ -33,7 +58,7 @@ Editor, User messages, and selector borders use an `enabled` field. Footer uses 
 
 ### Editor (Opencode-inspired)
 
-- `opencode` (default) keeps an accent rail on every interior row
+- `opencode` (default) keeps an accent rail on every interior row; the bundled Sakura theme closes those rows with a matching right rail, while ordinary Zentui themes retain the upstream left-rail layout
 - `opencode-copy-friendly` (**Opencode (copy-friendly)** in `/zentui`) preserves the low-rail rendering for clean terminal selection
 - `minimalist` moves session name, cost, model, thinking, context, Git, configurable path, Bash state, and turn duration into a rounded frame
 - The selected model label and provider appear inside both Opencode editor variants; the model ID is used by default, while `components.editor.modelLabel: "name"` uses the display name with ID fallback.
@@ -42,17 +67,15 @@ Editor, User messages, and selector borders use an `enabled` field. Footer uses 
 
 Editor previews:
 
-<h4 align="center"><code>opencode</code></h4>
-
-![Zentui Opencode editor with an accent rail, model metadata, Nerd Font Git branch, and Starship footer.](./assets/screenshots/editor-opencode.png)
-
-<h4 align="center"><code>opencode-copy-friendly</code></h4>
-
-![Zentui copy-friendly Opencode editor with model metadata, Nerd Font Git branch, and Starship footer.](./assets/screenshots/editor-opencode-copy-friendly.png)
-
-<h4 align="center"><code>minimalist</code></h4>
-
-![Zentui Minimalist editor with session, cost, model, Git, and path metadata in a rounded frame with the Footer hidden.](./assets/screenshots/editor-minimalist.png)
+```text
+opencode                 opencode-copy-friendly     minimalist
+────────────────────     ────────────────────       ╭─ session ── model ╮
+│                  │
+│ prompt           │     › prompt                  │ prompt             │
+│                  │
+│ metadata         │      metadata                 ╰─ git ───── path ──╯
+────────────────────     ────────────────────
+```
 
 ### User messages
 
@@ -63,23 +86,20 @@ Editor previews:
 - Disabling User-message styling delegates byte-for-byte to Pi's native renderer; native is not a style ID
 - No custom `plain` message style is provided
 
-User-message previews:
+```text
+framed                    framed-copy-friendly
+────────────────────      ────────────────────
+│
+│ Message                  Message
+│
+────────────────────      ────────────────────
 
-<h4 align="center"><code>framed</code></h4>
-
-![Zentui Framed user-message style with horizontal borders, spacer rows, and an accent rail.](./assets/screenshots/user-message-framed.png)
-
-<h4 align="center"><code>framed-copy-friendly</code></h4>
-
-![Zentui copy-friendly Framed user-message style with horizontal borders, spacer rows, and a copyable left edge.](./assets/screenshots/user-message-framed-copy-friendly.png)
-
-<h4 align="center"><code>compact</code></h4>
-
-![Zentui Compact user-message style with a slim accent rail and no surrounding borders.](./assets/screenshots/user-message-compact.png)
-
-<h4 align="center"><code>labeled</code></h4>
-
-![Zentui Labeled user-message style in a rounded frame with the label User.](./assets/screenshots/user-message-labeled.png)
+compact                    labeled
+│ Message                 ╭─ User ───────────╮
+│ Continued               │ Message          │
+                          │ Continued        │
+                          ╰──────────────────╯
+```
 
 ### Git Status Icons
 
@@ -163,12 +183,10 @@ Detects Starship Nerd Font runtime/language modules, uses the Starship Nerd Font
 ## Install
 
 ```bash
-# From npm
-pi install npm:pi-zentui
-
-# From git
-pi install git:github.com/lmilojevicc/pi-zentui
+pi install git:github.com/MaShouo/pi-zentui
 ```
+
+The package already includes Zentui and its Sakura visual integrations. Do not install stock `pi-zentui` or `pi-claude-shimmer` alongside it because those packages own the same editor, footer, transcript, and working-indicator surfaces.
 
 ## Config
 
@@ -367,7 +385,7 @@ Default config values — copy this and change any value you want:
 		"os": "bold white",
 		"editorAccent": "accent",
 		"editorPrompt": "accent",
-		"editorBorder": "borderMuted",
+		"editorBorder": "sakura-macaron-gradient",
 		"editorModel": "accent",
 		"editorProvider": "text",
 		"editorThinking": "muted",
@@ -395,7 +413,7 @@ Default config values — copy this and change any value you want:
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
 - `editorAccent` styles Editor and User-message accent rails and the labeled message label.
 - `editorPrompt` styles the `opencode-copy-friendly` Editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
-- `editorBorder` styles the `framed` and `framed-copy-friendly` previous-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
+- Selecting the bundled `sakura-macaron` theme automatically enables Sakura frame gradients, transcript tool cards, thinking trails, and footer accents. `editorBorder` also accepts the explicit marker `sakura-macaron-gradient` when you want those visuals with another theme; set any other valid border color to use ordinary Zentui rendering.
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 Tip: with `opencode-copy-friendly`, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
@@ -555,7 +573,27 @@ The minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-cust
 ## Requirements
 
 - [Pi](https://pi.dev) coding agent 0.80.3 or newer
+- A truecolor terminal
 - A [Nerd Font](https://www.nerdfonts.com/) for icons (or set `icons.mode` to `"ascii"`)
+
+## Conflicts
+
+Do not stack this package with stock `pi-zentui`, `pi-powerline-footer`, `@tifan/pi-fixed-editor`, `pi-sticky-input`, or stock `pi-claude-shimmer`. They patch or replace the same Pi UI surfaces.
+
+`dual-quota` is intentionally not included. Third-party status extensions still work through Zentui's normal `ctx.ui.setStatus()` integration.
+
+## Syncing Zentui
+
+Keep your fork as `origin` and the official Zentui repository as `upstream`:
+
+```bash
+git remote rename origin upstream
+git remote add origin https://github.com/MaShouo/pi-zentui.git
+git fetch upstream
+git merge upstream/main
+```
+
+The Sakura resources remain parallel extensions, while Zentui visual changes are isolated to the gradient/tool/thinking adapters and small renderer hooks. Resolve upstream merges in those hooks instead of replacing `extensions/zentui/` wholesale.
 
 ## Development
 
@@ -585,10 +623,13 @@ PI_BIN=/path/to/pi npm run pi:dev
 
 ## Credits
 
-Inspired by:
+Built on [Zentui](https://github.com/lmilojevicc/pi-zentui) by Luka and inspired by:
 
-- [Starship](https://starship.rs/) — the minimal, blazing-fast, and infinitely customizable prompt
-- [Opencode](https://github.com/opencode-ai/opencode) — terminal-based AI coding assistant
+- [pi-claude-shimmer](https://github.com/ouzhenkun/pi-claude-shimmer) by ouzhenkun
+- [Starship](https://starship.rs/), for the minimal and configurable prompt model
+- [Opencode](https://github.com/opencode-ai/opencode), for the terminal UI direction
+
+See `NOTICE` and `licenses/` for bundled attribution.
 
 ## License
 
