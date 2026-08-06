@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	estimateOutputTokens,
 	estimateTextTokens,
+	formatActiveSubagentStatus,
 	formatTokenCount,
+	getSubagentStatusLabel,
+	isSubagentToolName,
 	reportedOutputTokens,
 } from "../extensions/claude-shimmer/index";
 
@@ -33,5 +36,37 @@ describe("Sakura Claude Shimmer token formatting", () => {
 				],
 			}),
 		).toBeGreaterThanOrEqual(4);
+	});
+
+	it("recognizes official subagent tool names without matching ordinary agent tools", () => {
+		expect(isSubagentToolName("subagent")).toBe(true);
+		expect(isSubagentToolName("Sub Agents")).toBe(true);
+		expect(isSubagentToolName("sub-agent")).toBe(true);
+		expect(isSubagentToolName("agent")).toBe(false);
+		expect(isSubagentToolName("research-agent")).toBe(false);
+		expect(isSubagentToolName("subagent-helper")).toBe(false);
+		expect(isSubagentToolName("subagent/run")).toBe(false);
+	});
+
+	it("extracts safe, bounded subagent labels from supported arguments", () => {
+		expect(
+			getSubagentStatusLabel("subagent", {
+				agent: "scout\n",
+				objective: "  map   the\ttool lifecycle  ",
+			}),
+		).toBe("scout: map the tool lifecycle");
+		expect(getSubagentStatusLabel("subagents", { scope: "review tests" })).toBe("review tests");
+		expect(getSubagentStatusLabel("read", { task: "not a subagent" })).toBeUndefined();
+		expect(getSubagentStatusLabel("subagent", { task: ["invalid"] })).toBeUndefined();
+		expect(getSubagentStatusLabel("subagent", { description: "x".repeat(200) })).toHaveLength(88);
+	});
+
+	it("formats parallel subagent statuses with a count and bounded useful labels", () => {
+		expect(formatActiveSubagentStatus([])).toBeUndefined();
+		expect(formatActiveSubagentStatus(["scout: inspect"])).toBe("Subagent: scout: inspect");
+		expect(
+			formatActiveSubagentStatus(["scout: inspect", "worker: implement", "tester: verify"]),
+		).toBe("Subagents (3): scout: inspect · worker: implement +1");
+		expect(formatActiveSubagentStatus(["x".repeat(88), "y".repeat(88)])).toHaveLength(128);
 	});
 });

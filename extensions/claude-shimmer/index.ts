@@ -422,6 +422,69 @@ export function estimateOutputTokens(message: AssistantTokenMessage | undefined)
 	return Math.max(0, Math.ceil(units / 4));
 }
 
+const SUBAGENT_TOOL_NAMES = new Set(["subagent", "subagents"]);
+const SUBAGENT_LABEL_MAX_LENGTH = 88;
+const SUBAGENT_STATUS_MAX_LENGTH = 128;
+
+function collapseDisplayText(value: string): string {
+	return value
+		.replace(/[\x00-\x1F\x7F-\x9F]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function truncateDisplayText(value: string, maxLength: number): string {
+	const characters = Array.from(value);
+	return characters.length > maxLength
+		? `${characters.slice(0, Math.max(0, maxLength - 1)).join("")}…`
+		: value;
+}
+
+function stringArgument(args: unknown, key: string): string | undefined {
+	if (!args || typeof args !== "object" || Array.isArray(args)) return undefined;
+	const value = (args as Record<string, unknown>)[key];
+	if (typeof value !== "string") return undefined;
+	const text = collapseDisplayText(value);
+	return text || undefined;
+}
+
+/** Recognize only normalized official subagent tool names. */
+export function isSubagentToolName(toolName: unknown): boolean {
+	if (typeof toolName !== "string") return false;
+	const normalized = toolName
+		.trim()
+		.toLowerCase()
+		.replace(/[\s._:/-]+/g, "");
+	return SUBAGENT_TOOL_NAMES.has(normalized);
+}
+
+/**
+ * Safely derive a compact, human-readable subagent label from untrusted tool arguments.
+ * Returns undefined when this is not a recognized subagent invocation or carries no usable text.
+ */
+export function getSubagentStatusLabel(toolName: unknown, args: unknown): string | undefined {
+	if (!isSubagentToolName(toolName)) return undefined;
+
+	const agent = stringArgument(args, "agent") ?? stringArgument(args, "name");
+	const work =
+		stringArgument(args, "task") ??
+		stringArgument(args, "objective") ??
+		stringArgument(args, "description") ??
+		stringArgument(args, "scope");
+	const label = agent && work ? `${agent}: ${work}` : (agent ?? work);
+	return label ? truncateDisplayText(label, SUBAGENT_LABEL_MAX_LENGTH) : undefined;
+}
+
+/** Build a bounded status for one or more concurrently running subagents. */
+export function formatActiveSubagentStatus(labels: readonly string[]): string | undefined {
+	if (labels.length === 0) return undefined;
+	const count = labels.length;
+	const shown = labels.slice(0, 2).join(" · ");
+	const remainder = count > 2 ? ` +${count - 2}` : "";
+	const prefix = count === 1 ? "Subagent" : `Subagents (${count})`;
+	return truncateDisplayText(`${prefix}: ${shown}${remainder}`, SUBAGENT_STATUS_MAX_LENGTH);
+}
+
 // ─── Shimmer Engine ───────────────────────────────────────────────
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -504,6 +567,7 @@ export default function (pi: ExtensionAPI) {
 	let lastTokenTime = 0;
 	let turnActive = false;
 	let activeToolCount = 0;
+	const activeSubagentCalls = new Map<string, string>();
 
 	// Stall smooth interpolation (0→1)
 	let _stallFrame = 0;
@@ -641,9 +705,9 @@ export default function (pi: ExtensionAPI) {
 		const baseHex = "#F2A7C6";
 		const shimmerHex = "#FFF8FC";
 		const stalled = _stallFrame > 0;
-		// Live trailing dots so "Dusting" never looks frozen
-		const dots = animatedDots(shimmerFrame);
-		const verbWithDots = `${verb}${dots}`;
+		const subagentStatus = formatActiveSubagentStatus([...activeSubagentCalls.values()]);
+		// Live trailing dots so a generic verb never looks frozen.
+		const shimmerText = subagentStatus ?? `${verb}${animatedDots(shimmerFrame)}`;
 
 		let verbText: string;
 
@@ -655,10 +719,10 @@ export default function (pi: ExtensionAPI) {
 				const stallT = _stallFrame / STALL_TRANSITION_FRAMES;
 				const stallC = blend(SAKURA, STALL_ERROR_RED, stallT);
 				const flashC = blend(stallC, CORAL, flashOpacity);
-				verbText = `\x1b[38;2;${flashC[0]};${flashC[1]};${flashC[2]}m${verbWithDots}\x1b[0m`;
+				verbText = `\x1b[38;2;${flashC[0]};${flashC[1]};${flashC[2]}m${shimmerText}\x1b[0m`;
 			} else {
 				const c = blend(SAKURA, MINT, flashOpacity);
-				verbText = `\x1b[38;2;${c[0]};${c[1]};${c[2]}m${verbWithDots}\x1b[0m`;
+				verbText = `\x1b[38;2;${c[0]};${c[1]};${c[2]}m${shimmerText}\x1b[0m`;
 			}
 		} else if (stalled) {
 			// Smooth stall: gradually blend to coral, still sweep + dots
@@ -669,9 +733,9 @@ export default function (pi: ExtensionAPI) {
 			const stallShimmer = blend(shimC, CORAL, stallT);
 			const baseHexStr = `#${stallBase[0].toString(16).padStart(2, "0")}${stallBase[1].toString(16).padStart(2, "0")}${stallBase[2].toString(16).padStart(2, "0")}`;
 			const shimmerHexStr = `#${stallShimmer[0].toString(16).padStart(2, "0")}${stallShimmer[1].toString(16).padStart(2, "0")}${stallShimmer[2].toString(16).padStart(2, "0")}`;
-			verbText = colorSweep(verbWithDots, shimmerFrame, baseHexStr, shimmerHexStr, reverse);
+			verbText = colorSweep(shimmerText, shimmerFrame, baseHexStr, shimmerHexStr, reverse);
 		} else {
-			verbText = colorSweep(verbWithDots, shimmerFrame, baseHex, shimmerHex, reverse);
+			verbText = colorSweep(shimmerText, shimmerFrame, baseHex, shimmerHex, reverse);
 		}
 
 		// One outer [] HUD; dots are fixed-width so this never shifts.
@@ -797,6 +861,7 @@ export default function (pi: ExtensionAPI) {
 		_stallFrame = 0;
 		lastTokenTime = 0;
 		activeToolCount = 0;
+		activeSubagentCalls.clear();
 		setGlyphs();
 	}
 
@@ -931,19 +996,26 @@ export default function (pi: ExtensionAPI) {
 		updateDisplay();
 	});
 
-	pi.on("tool_execution_start", async (_event, ctx) => {
+	pi.on("tool_execution_start", async (event, ctx) => {
 		ctx_ = ctx;
 		activeToolCount++;
+		const label = getSubagentStatusLabel(event.toolName, event.args);
+		if (label && typeof event.toolCallId === "string" && event.toolCallId) {
+			activeSubagentCalls.set(event.toolCallId, label);
+		}
 		setMode("tool-use");
+		updateDisplay();
 	});
 
-	pi.on("tool_execution_end", async (_event, ctx) => {
+	pi.on("tool_execution_end", async (event, ctx) => {
 		ctx_ = ctx;
 		activeToolCount = Math.max(0, activeToolCount - 1);
+		if (typeof event.toolCallId === "string") activeSubagentCalls.delete(event.toolCallId);
 		// After all tools finish, switch back to responding if the turn is still active
 		if (activeToolCount === 0 && (mode === "tool-use" || mode === "tool-input") && turnActive) {
 			setMode("responding");
 		}
+		updateDisplay();
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
@@ -952,11 +1024,14 @@ export default function (pi: ExtensionAPI) {
 		stopShimmer();
 
 		activeToolCount = 0;
+		activeSubagentCalls.clear();
 	});
 
 	pi.on("agent_end", async () => {
 		turnActive = false;
 		stopShimmer();
+		activeToolCount = 0;
+		activeSubagentCalls.clear();
 
 		// Save elapsed before resetting turn state
 		const elapsed = Date.now() - (turnStart || agentStart || Date.now());
@@ -973,6 +1048,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		turnActive = false;
+		activeToolCount = 0;
+		activeSubagentCalls.clear();
 		stopShimmer();
 		ctx_ = null;
 	});
