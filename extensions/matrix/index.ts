@@ -239,7 +239,7 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 		invalidate();
 		if (!ctx) return;
 		try {
-			ctx.ui.setWidget(MATRIX_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+			ctx.ui.setWidget(MATRIX_WIDGET_KEY, undefined, { placement: "belowEditor" });
 		} catch {
 			// The UI may already be disposed during shutdown; cleanup is idempotent.
 		}
@@ -264,7 +264,7 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 				requestRender = () => tui.requestRender();
 				return component;
 			},
-			{ placement: "aboveEditor" },
+			{ placement: "belowEditor" },
 		);
 		schedule(token);
 	};

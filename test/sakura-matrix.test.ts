@@ -34,7 +34,7 @@ describe("Sakura Matrix renderer", () => {
 });
 
 describe("Sakura Matrix widget ownership", () => {
-	it("installs and cleans up only an above-editor widget", async () => {
+	it("installs and cleans up only a below-editor widget", async () => {
 		const handlers = new Map<string, Handler[]>();
 		const widgets: Array<[string, unknown, unknown]> = [];
 		const setWorkingMessage = vi.fn();
@@ -62,8 +62,8 @@ describe("Sakura Matrix widget ownership", () => {
 		await handlers.get("agent_end")?.[0]?.({}, context);
 
 		expect(widgets).toEqual([
-			[MATRIX_WIDGET_KEY, expect.any(Function), { placement: "aboveEditor" }],
-			[MATRIX_WIDGET_KEY, undefined, { placement: "aboveEditor" }],
+			[MATRIX_WIDGET_KEY, expect.any(Function), { placement: "belowEditor" }],
+			[MATRIX_WIDGET_KEY, undefined, { placement: "belowEditor" }],
 		]);
 		expect(setWorkingMessage).not.toHaveBeenCalled();
 		expect(setWorkingIndicator).not.toHaveBeenCalled();
