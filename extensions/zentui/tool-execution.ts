@@ -110,9 +110,13 @@ export function installToolExecutionStyle(
 		"render",
 		"tool-execution-render",
 		({ predecessor, receiver, args }) => {
-			if (!isEnabled()) return Reflect.apply(predecessor, receiver, args);
-			const width = args[0];
 			const runtime = receiver as ToolExecutionRuntime;
+			// Preserve dedicated edit renderers (for example pi-tool-display split diffs)
+			// instead of stripping and repainting their ANSI output.
+			if (!isEnabled() || runtime.toolName === "edit") {
+				return Reflect.apply(predecessor, receiver, args);
+			}
+			const width = args[0];
 			if (
 				typeof width === "number" &&
 				runtime.isPartial === false &&
