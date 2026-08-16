@@ -1,7 +1,7 @@
 {
 	"name": "pi-sakura-cyberdeck",
 	"version": "2.0.0",
-	"description": "A Sakura Macaron visual pack for Pi, built on Zentui.",
+	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.20.1.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
@@ -43,9 +43,9 @@
 		"prepublishOnly": "npm run verify && npm run pack:check"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": ">=0.80.3",
-		"@earendil-works/pi-coding-agent": ">=0.80.3",
-		"@earendil-works/pi-tui": ">=0.80.3"
+		"@earendil-works/pi-ai": ">=0.80.5",
+		"@earendil-works/pi-coding-agent": ">=0.80.5",
+		"@earendil-works/pi-tui": ">=0.80.5"
 	},
 	"pi": {
 		"extensions": [

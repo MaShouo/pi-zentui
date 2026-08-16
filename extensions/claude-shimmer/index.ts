@@ -9,6 +9,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { loadConfig } from "../zentui/config";
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -582,8 +583,23 @@ export default function (pi: ExtensionAPI) {
 
 	// State
 	let ctx_: ExtensionContext | null = null;
+	// Zentui's configurable Working line owns this global, unkeyed Pi surface when enabled.
+	let zentuiWorkingLineEnabled = false;
 
 	// ── Helpers ─────────────────────────────────────────────────
+
+	function syncWorkingLineOwnership() {
+		try {
+			zentuiWorkingLineEnabled = loadConfig().components.workingLine.enabled;
+		} catch {
+			// Preserve the Sakura fallback when Zentui configuration cannot be read.
+			zentuiWorkingLineEnabled = false;
+		}
+	}
+
+	function ownsWorkingSurface(): boolean {
+		return !zentuiWorkingLineEnabled;
+	}
 
 	/**
 	 * Pi ThinkingLevel: off | minimal | low | medium | high | xhigh | max
@@ -744,7 +760,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function updateDisplay() {
-		if (!ctx_?.ui) return;
+		if (!ctx_?.ui || !ownsWorkingSurface()) return;
 		ctx_.ui.setWorkingMessage(buildShimmerMessage());
 	}
 
@@ -811,7 +827,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function setGlyphs() {
-		if (!ctx_?.ui) return;
+		if (!ctx_?.ui || !ownsWorkingSurface()) return;
 		const intervalMs = 120;
 		ctx_.ui.setWorkingIndicator({
 			frames: SPINNER_FRAMES.map((g) => ORANGE + g + RESET),
@@ -847,7 +863,7 @@ export default function (pi: ExtensionAPI) {
 
 	function resetTurn(resetOutput = false) {
 		stopShimmer();
-		ctx_?.ui?.setWorkingMessage();
+		if (ownsWorkingSurface()) ctx_?.ui?.setWorkingMessage();
 		mode = "requesting";
 		currentBlockTokenUnits.clear();
 		currentEstimatedTokenUnits = 0;
@@ -869,6 +885,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ctx_ = ctx;
+		syncWorkingLineOwnership();
 	});
 
 	// Initialize shimmer state. Factored out so both agent_start and turn_start
@@ -888,12 +905,14 @@ export default function (pi: ExtensionAPI) {
 	// message + indicator immediately instead of flashing "Working...".
 	pi.on("agent_start", async (_event, ctx) => {
 		ctx_ = ctx;
+		syncWorkingLineOwnership();
 		if (!agentStart) agentStart = Date.now();
 		if (!turnActive) initTurn(true);
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
 		ctx_ = ctx;
+		syncWorkingLineOwnership();
 		if (turnActive) return; // already initialized by agent_start
 		initTurn();
 	});

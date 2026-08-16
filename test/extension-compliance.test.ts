@@ -97,6 +97,7 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	setEditorComponent: () => ({ applied: true }),
 	setMinimalist() {},
 	setUserMessagesComponent() {},
+	setWorkingLineComponent: () => ({ applied: true }),
 	setSelectorBordersComponent() {},
 	setFooterComponent() {},
 	setFooterSegments() {},
@@ -159,6 +160,13 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 					? config.colorSources.userMessages
 					: messages.colorSource,
 				styles: { ...messages.styles },
+			},
+			workingLine: {
+				...config.components.workingLine,
+				messages: {
+					...config.components.workingLine.messages,
+					values: [...config.components.workingLine.messages.values],
+				},
 			},
 			selectorBorders: {
 				...selectors,
@@ -5713,7 +5721,7 @@ describe("Pi docs compliance", () => {
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Appearance");
-		expect(themeLines.join("\n")).toContain("(1/7)");
+		expect(themeLines.join("\n")).toContain("(1/8)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -5831,7 +5839,7 @@ describe("Pi docs compliance", () => {
 					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput?: (data: string) => void;
 					};
-					for (let index = 0; index < 3; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 3; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
@@ -5903,7 +5911,7 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					for (let index = 0; index < 3; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -5921,7 +5929,7 @@ describe("Pi docs compliance", () => {
 			"Separator: pipe",
 		]);
 		expect(dependencyRenderRequests).toBe(4);
-		expect(tuiRenderRequests).toBe(7);
+		expect(tuiRenderRequests).toBe(8);
 	});
 
 	it("cycles branch length presets and returns custom JSON values to full", async () => {
@@ -5972,7 +5980,7 @@ describe("Pi docs compliance", () => {
 						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 							handleInput?: (data: string) => void;
 						};
-						for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
+						for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
 						component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
@@ -6129,6 +6137,7 @@ describe("Pi docs compliance", () => {
 			| "Appearance"
 			| "Editor"
 			| "User messages"
+			| "Working line"
 			| "Footer"
 			| "Segments"
 			| "Git"
@@ -6138,6 +6147,7 @@ describe("Pi docs compliance", () => {
 			"Appearance",
 			"Editor",
 			"User messages",
+			"Working line",
 			"Footer",
 			"Segments",
 			"Git",
@@ -6395,7 +6405,7 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(7);
+		expect(tuiRenderRequests).toBe(8);
 	});
 
 	it("does not show inactive saved placements in the extension segments tab", async () => {
@@ -7012,7 +7022,7 @@ describe("three-state Footer lifecycle", () => {
 			const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 3; index++) settings.handleInput("\t");
+			for (let index = 0; index < 4; index++) settings.handleInput("\t");
 			settings.handleInput(" ");
 		};
 		const ctx = makeContext({ ui: harness.ui });
