@@ -10,6 +10,7 @@ import {
 	isSakuraMacaronVisuals,
 	renderSakuraFrameGradient,
 	renderSakuraGradient,
+	renderSakuraSolid,
 } from "./gradient";
 import {
 	EDITOR_ACCENT_FALLBACK,
@@ -100,11 +101,16 @@ function renderRail(theme: Theme | undefined, config: ZentuiConfig): string {
 function renderFramed({ text, width, theme, config }: UserMessageStyleRenderInput): string[] {
 	if (width <= 0) return [""];
 	const rail = renderRail(theme, config);
-	const contentWidth = Math.max(1, width - visibleWidth(rail));
+	const rightRail =
+		isSakuraMacaronVisuals(config.colors.editorBorder, theme) && config.icons.rail.length > 0
+			? ` ${renderSakuraSolid(config.icons.rail)}`
+			: "";
+	const chromeWidth = visibleWidth(rail) + visibleWidth(rightRail);
+	const contentWidth = Math.max(1, width - chromeWidth);
 	const body = renderMarkdown(text, contentWidth, theme);
 	const row = (line: string) => {
-		const available = Math.max(0, width - visibleWidth(rail));
-		return truncateToWidth(`${rail}${fillLine(line, available)}`, width, "");
+		const available = Math.max(0, width - chromeWidth);
+		return truncateToWidth(`${rail}${fillLine(line, available)}${rightRail}`, width, "");
 	};
 	const rule = truncateToWidth(border(theme, config, "─".repeat(width)), width, "");
 	return [rule, row(""), ...body.map(row), row(""), rule];

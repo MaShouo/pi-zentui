@@ -53,6 +53,15 @@ describe("pure user-message styles", () => {
 		]);
 	});
 
+	it("closes Sakura framed message rows with a width-stable right rail", () => {
+		const sakuraTheme = Object.assign(ansiTheme(), { name: "sakura-macaron" }) as Theme;
+		const lines = render("framed", "Hello", 12, sakuraTheme);
+		const body = lines.slice(1, -1).map(plain);
+
+		expect(body).toEqual(["│          │", "│ Hello    │", "│          │"]);
+		expect(lines.every((line) => visibleWidth(line) === 12)).toBe(true);
+	});
+
 	it("adds one leading space to copy-friendly framed message text", () => {
 		expect(render("framed-copy-friendly", "Hello", 12)).toEqual([
 			"────────────",
