@@ -8,8 +8,13 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
+import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor";
+import { renderCompletionPalette } from "./completion-menu";
 import type { EditorStyle, ZentuiConfig } from "./config";
-import { renderEditorMetadataFormat } from "./editor-metadata-format";
+import {
+	type EditorMetadataZones,
+	renderEditorMetadataFormatSplit,
+} from "./editor-metadata-format";
 import { isSakuraMacaronVisuals, renderSakuraFrameGradient, renderSakuraSolid } from "./gradient";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
@@ -82,6 +87,11 @@ export type EditorMeta = {
 	modelName?: string;
 	providerLabel: string;
 	sessionName?: string;
+	contextPercent?: number;
+	contextWindow?: number;
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheHitRate?: number;
 };
 
 export type PolishedEditorFrameOptions = {
@@ -115,6 +125,17 @@ type PolishedFrameOptions = {
 type PolishedFrameResult = {
 	lines: string[];
 	decorated: boolean;
+};
+
+type AccentRailFrameAdapterOptions = {
+	width: number;
+	baseRendered: string[];
+	autocompleteSource: AutocompleteEditorInternals;
+	autocompleteCapture?: AutocompleteCapture;
+	uiTheme: Theme;
+	config: ZentuiConfig;
+	ownedFrame?: PolishedFrameSplit;
+	trustedBaseFrame?: boolean;
 };
 
 type MinimalistFrameAdapterOptions = {
@@ -156,10 +177,14 @@ function isPolishedFrameSplit(value: unknown, baseLineCount: number): value is P
 	);
 }
 
+function stripNativeRightPadding(value: string): string {
+	return value.replace(/ +$/, "");
+}
+
 function autocompleteCount(
 	source: AutocompleteEditorInternals,
 	capture: AutocompleteCapture | undefined,
-	baseLineCount: number,
+	baseRendered: string[],
 ): AutocompleteCount {
 	try {
 		const showing = source.isShowingAutocomplete;
@@ -168,7 +193,18 @@ function autocompleteCount(
 			!capture?.compatible ||
 			capture.called !== 1 ||
 			capture.rows.length <= 0 ||
-			capture.rows.length >= baseLineCount
+			capture.rows.length >= baseRendered.length
+		)
+			return { known: false };
+		const suffix = baseRendered.slice(-capture.rows.length);
+		if (
+			!suffix.every((line, index) => {
+				const captured = capture.rows[index];
+				return (
+					captured !== undefined &&
+					(line === captured || stripNativeRightPadding(line) === stripNativeRightPadding(captured))
+				);
+			})
 		)
 			return { known: false };
 		return { known: true, count: capture.rows.length };
@@ -258,7 +294,7 @@ export function renderWithAutocompleteCapture<T>(
 				capture.compatible = false;
 			try {
 				if (own) Object.defineProperty(list, "render", own);
-				else Reflect.deleteProperty(list, "render");
+				else if (!Reflect.deleteProperty(list, "render")) capture.compatible = false;
 			} catch {
 				capture.compatible = false;
 			}
@@ -290,6 +326,7 @@ function selectedPolishedConfig(config: ZentuiConfig) {
 			return config.components.editor.styles.opencode;
 		case "opencode-copy-friendly":
 			return config.components.editor.styles["opencode-copy-friendly"];
+		case "accent-rail":
 		case "minimalist":
 			return undefined;
 	}
@@ -329,22 +366,66 @@ function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: stri
 	return {
 		prompt,
 		promptWidth: visibleWidth(prompt),
-		rail,
 		rightRail,
+		rail,
 		railWidth: lowRail ? visibleWidth(prompt) : visibleWidth(rail) + visibleWidth(rightRail),
 	};
 }
 
-function composeMetadataLine(left: string, right: string | undefined, width: number): string {
-	if (!right) return left;
+export function composeEditorMetadataLine(
+	{ left, middle, right }: EditorMetadataZones,
+	rightStatus: string | undefined,
+	width: number,
+): string {
 	const maxWidth = Math.max(0, width);
-	const rightWidth = visibleWidth(right);
-	if (rightWidth >= maxWidth) return truncateToWidth(right, maxWidth, "");
 
-	const leftWidth = Math.max(0, maxWidth - rightWidth - 1);
-	const leftText = truncateToWidth(left, leftWidth, "");
-	const gap = " ".repeat(Math.max(1, maxWidth - visibleWidth(leftText) - rightWidth));
-	return `${leftText}${gap}${right}`;
+	// Preserve the legacy no-fill path exactly, including deferring left-only
+	// truncation to the style-specific frame clamp below.
+	if (!middle && !right) {
+		if (!rightStatus) return left;
+		const rightStatusWidth = visibleWidth(rightStatus);
+		if (rightStatusWidth >= maxWidth) return truncateToWidth(rightStatus, maxWidth, "");
+
+		const leftBudget = Math.max(0, maxWidth - rightStatusWidth - 1);
+		const leftText = truncateToWidth(left, leftBudget, "");
+		const gap = " ".repeat(Math.max(1, maxWidth - visibleWidth(leftText) - rightStatusWidth));
+		return `${leftText}${gap}${rightStatus}`;
+	}
+
+	const statusText = rightStatus ? truncateToWidth(rightStatus, maxWidth, "") : "";
+	const statusWidth = visibleWidth(statusText);
+	const leftBudget = Math.max(0, maxWidth - statusWidth - (statusText && left ? 1 : 0));
+	const leftText = truncateToWidth(left, leftBudget, "");
+	const leftWidth = visibleWidth(leftText);
+
+	const rightBudget = Math.max(
+		0,
+		maxWidth - leftWidth - statusWidth - (leftText ? 1 : 0) - (statusText ? 1 : 0),
+	);
+	const configuredRight = truncateToWidth(right, rightBudget, "");
+	const rightText =
+		configuredRight && statusText
+			? `${configuredRight} ${statusText}`
+			: configuredRight || statusText;
+	const rightWidth = visibleWidth(rightText);
+	const gapWidth = Math.max(0, maxWidth - leftWidth - rightWidth);
+	const middleWidth = visibleWidth(middle);
+	const minimumMiddleGap = (leftText ? 1 : 0) + (rightText ? 1 : 0);
+
+	if (!middle || middleWidth + minimumMiddleGap > gapWidth) {
+		return `${leftText}${" ".repeat(gapWidth)}${rightText}`;
+	}
+
+	const availablePadding = gapWidth - middleWidth;
+	const minimumLeftPadding = leftText ? 1 : 0;
+	const maximumLeftPadding = availablePadding - (rightText ? 1 : 0);
+	const leftPadding = Math.min(
+		maximumLeftPadding,
+		Math.max(minimumLeftPadding, Math.floor(availablePadding / 2)),
+	);
+	return `${leftText}${" ".repeat(leftPadding)}${middle}${" ".repeat(
+		availablePadding - leftPadding,
+	)}${rightText}`;
 }
 
 function ansiStrippedText(line: string): string {
@@ -485,6 +566,66 @@ function readVimStatus(editor: WrappedEditor, uiTheme: Theme): string | undefine
 	return safeThemeFg(uiTheme, vimModeColor(normalized), label);
 }
 
+function renderAccentRailFrameFromBase({
+	width,
+	baseRendered,
+	autocompleteSource,
+	autocompleteCapture,
+	uiTheme,
+	config,
+	ownedFrame,
+	trustedBaseFrame = false,
+}: AccentRailFrameAdapterOptions): PolishedFrameResult {
+	if (width < ACCENT_RAIL_CHROME_WIDTH + 1 || baseRendered.length < 2) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	if (ownedFrame && !isPolishedFrameSplit(ownedFrame, baseRendered.length)) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const autocomplete = ownedFrame
+		? { known: true as const, count: ownedFrame.trailingLines.length }
+		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered);
+	if (!autocomplete.known) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const editorFrame =
+		!ownedFrame && autocomplete.count > 0
+			? baseRendered.slice(0, -autocomplete.count)
+			: baseRendered;
+	const autocompleteLines = ownedFrame
+		? ownedFrame.trailingLines
+		: autocomplete.count > 0
+			? baseRendered.slice(-autocomplete.count)
+			: [];
+	if (editorFrame.length < 2) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const parsedTop = parseEditorBorder(editorFrame[0] ?? "", "above");
+	const parsedBottom = parseEditorBorder(editorFrame.at(-1) ?? "", "below");
+	if (!ownedFrame && !trustedBaseFrame && (!parsedTop || !parsedBottom)) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
+	const viewport = ownedFrame?.viewport ?? {
+		above: parsedTop?.count,
+		below: parsedBottom?.count,
+	};
+	const renderedLines = renderAccentRailEditorFrame({
+		width,
+		editorLines,
+		autocompleteLines,
+		viewport,
+		uiTheme,
+		config,
+	});
+	const lines = renderedLines.length === 1 ? ["", ...renderedLines, ""] : renderedLines;
+	POLISHED_FRAME_SPLITS.set(lines, {
+		rows: Object.freeze([...lines]),
+		split: { editorLines, trailingLines: autocompleteLines, viewport },
+	});
+	return { lines, decorated: true };
+}
+
 function renderMinimalistFrameFromBase({
 	width,
 	baseRendered,
@@ -506,7 +647,7 @@ function renderMinimalistFrameFromBase({
 	}
 	const autocomplete = ownedFrame
 		? { known: true as const, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered.length);
+		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered);
 	if (!autocomplete.known) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -572,7 +713,7 @@ function renderPolishedFrame({
 
 	const autocomplete = ownedFrame
 		? { known: true, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered.length);
+		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered);
 	if (!autocomplete.known) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -645,7 +786,7 @@ export function renderPolishedEditorFrame({
 	);
 	const innerWidth = Math.max(0, width - railWidth);
 	const lowRailContinuation = " ".repeat(promptWidth);
-	const meta = renderEditorMetadataFormat(
+	const metadataZones = renderEditorMetadataFormatSplit(
 		selectedPolishedConfig(config)?.metadataFormat ??
 			config.components.editor.styles.opencode.metadataFormat,
 		{
@@ -655,12 +796,17 @@ export function renderPolishedEditorFrame({
 			provider: modelMeta.providerLabel,
 			thinking: thinkingLevel ?? "",
 			sessionName: modelMeta.sessionName ?? "",
+			contextPercent: modelMeta.contextPercent,
+			contextWindow: modelMeta.contextWindow,
+			inputTokens: modelMeta.inputTokens,
+			outputTokens: modelMeta.outputTokens,
+			cacheHitRate: modelMeta.cacheHitRate,
 		},
 		uiTheme,
 		config,
 	);
-	const lowRailMeta = composeMetadataLine(meta, rightStatus, Math.max(0, width - 1));
-	const railedMeta = composeMetadataLine(meta, rightStatus, innerWidth);
+	const lowRailMeta = composeEditorMetadataLine(metadataZones, rightStatus, Math.max(0, width - 1));
+	const railedMeta = composeEditorMetadataLine(metadataZones, rightStatus, innerWidth);
 
 	const renderStaticBorder = (text: string) =>
 		isSakuraMacaronVisuals(config.colors.editorBorder, uiTheme)
@@ -700,6 +846,16 @@ export function renderPolishedEditorFrame({
 			config.components.editor.viewportIndicators ? viewport.below : undefined,
 		),
 	);
+	const completionLines =
+		selectedPolishedConfig(config)?.completionMenu === "palette"
+			? renderCompletionPalette({
+					lines: autocompleteLines,
+					width,
+					theme: uiTheme,
+					renderSeparator: renderBorder,
+					ownedBackground: false,
+				})
+			: autocompleteLines;
 	const lines = ["", ...editorLines, "", railedMeta];
 	const renderedLines = isLowRailPolishedStyle(config.components.editor.style)
 		? [
@@ -712,13 +868,13 @@ export function renderPolishedEditorFrame({
 				"",
 				` ${truncateToWidth(lowRailMeta, Math.max(0, width - 1), "")}`,
 				bottom,
-				...autocompleteLines,
+				...completionLines,
 			]
 		: [
 				top,
 				...lines.map((line) => `${rail}${fillLine(line, innerWidth)}${rightRail}`),
 				bottom,
-				...autocompleteLines,
+				...completionLines,
 			];
 
 	return clampRenderedLines(renderedLines, width);
@@ -763,16 +919,52 @@ export class PolishedEditor extends CustomEditor {
 			this.reportMinimalistDecoration(false);
 			return clampRenderedLines(super.render(width), width);
 		}
+		if (config.components.editor.style === "accent-rail") {
+			this.reportMinimalistDecoration(false);
+			if (width < ACCENT_RAIL_CHROME_WIDTH + 1) {
+				return clampRenderedLines(super.render(width), width);
+			}
+			let captured: { value: string[]; capture?: AutocompleteCapture };
+			try {
+				captured = renderWithAutocompleteCapture(
+					this as unknown as AutocompleteEditorInternals,
+					() => super.render(width - ACCENT_RAIL_CHROME_WIDTH),
+				);
+			} catch {
+				return clampRenderedLines(super.render(width), width);
+			}
+			try {
+				const result = renderAccentRailFrameFromBase({
+					width,
+					baseRendered: captured.value,
+					autocompleteSource: this as unknown as AutocompleteEditorInternals,
+					autocompleteCapture: captured.capture,
+					uiTheme: this.uiTheme,
+					config,
+					trustedBaseFrame: true,
+				});
+				if (result.decorated) return result.lines;
+			} catch {
+				// Decoration is optional; preserve the completed same-render rows below.
+			}
+			return clampRenderedLines(captured.value, width);
+		}
 		if (config.components.editor.style === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);
 				return clampRenderedLines(super.render(width), width);
 			}
+			let captured: { value: string[]; capture?: AutocompleteCapture };
 			try {
-				const captured = renderWithAutocompleteCapture(
+				captured = renderWithAutocompleteCapture(
 					this as unknown as AutocompleteEditorInternals,
 					() => super.render(Math.max(0, width - 4)),
 				);
+			} catch {
+				this.reportMinimalistDecoration(false);
+				return clampRenderedLines(super.render(width), width);
+			}
+			try {
 				const result = renderMinimalistFrameFromBase({
 					width,
 					baseRendered: captured.value,
@@ -789,7 +981,7 @@ export class PolishedEditor extends CustomEditor {
 				return result.lines;
 			} catch {
 				this.reportMinimalistDecoration(false);
-				return clampRenderedLines(super.render(width), width);
+				return clampRenderedLines(captured.value, width);
 			}
 		}
 		this.reportMinimalistDecoration(false);
@@ -799,11 +991,15 @@ export class PolishedEditor extends CustomEditor {
 
 		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
 		const innerWidth = Math.max(0, width - railWidth);
+		let captured: { value: string[]; capture?: AutocompleteCapture };
 		try {
-			const captured = renderWithAutocompleteCapture(
-				this as unknown as AutocompleteEditorInternals,
-				() => super.render(innerWidth),
+			captured = renderWithAutocompleteCapture(this as unknown as AutocompleteEditorInternals, () =>
+				super.render(innerWidth),
 			);
+		} catch {
+			return clampRenderedLines(super.render(width), width);
+		}
+		try {
 			const result = renderPolishedFrame({
 				width,
 				baseRendered: captured.value,
@@ -816,13 +1012,11 @@ export class PolishedEditor extends CustomEditor {
 				trustedBaseFrame: true,
 				borderColor: this.borderColor,
 			});
-			if (result.decorated) {
-				return result.lines;
-			}
+			if (result.decorated) return result.lines;
 		} catch {
-			// Decoration is optional; re-render the base at the caller's width below.
+			// Decoration is optional; preserve the completed same-render rows below.
 		}
-		return clampRenderedLines(super.render(width), width);
+		return clampRenderedLines(captured.value, width);
 	}
 }
 
@@ -946,6 +1140,43 @@ export class WrappedPolishedEditor implements EditorComponent {
 			this.reportMinimalistDecoration(false);
 			return clampRenderedLines(this.base.render(width), width);
 		}
+		if (config.components.editor.style === "accent-rail") {
+			this.reportMinimalistDecoration(false);
+			if (width < ACCENT_RAIL_CHROME_WIDTH + 1) {
+				return clampRenderedLines(this.base.render(width), width);
+			}
+			let captured: { value: string[]; capture?: AutocompleteCapture };
+			try {
+				captured = renderWithAutocompleteCapture(this.base, () =>
+					this.base.render(width - ACCENT_RAIL_CHROME_WIDTH),
+				);
+			} catch {
+				return clampRenderedLines(this.base.render(width), width);
+			}
+			try {
+				const provenance = inspectPolishedFrameProvenance(
+					this.base,
+					captured.value,
+					config,
+					this.uiTheme,
+				);
+				if (provenance.safe) {
+					const result = renderAccentRailFrameFromBase({
+						width,
+						baseRendered: captured.value,
+						autocompleteSource: this.base,
+						autocompleteCapture: captured.capture,
+						uiTheme: this.uiTheme,
+						config,
+						ownedFrame: provenance.ownedFrame,
+					});
+					if (result.decorated) return result.lines;
+				}
+			} catch {
+				// Decoration is optional; preserve the completed same-render rows below.
+			}
+			return clampRenderedLines(captured.value, width);
+		}
 		if (config.components.editor.style === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);
@@ -986,10 +1217,10 @@ export class WrappedPolishedEditor implements EditorComponent {
 					}
 				}
 			} catch {
-				// Decoration is optional; re-render the base at the caller's width below.
+				// Decoration is optional; preserve the completed same-render rows below.
 			}
 			this.reportMinimalistDecoration(false);
-			return clampRenderedLines(this.base.render(width), width);
+			return clampRenderedLines(captured.value, width);
 		}
 		this.reportMinimalistDecoration(false);
 		if (width <= 2) return clampRenderedLines(this.base.render(width), width);
@@ -1026,12 +1257,10 @@ export class WrappedPolishedEditor implements EditorComponent {
 				});
 			}
 		} catch {
-			// Decoration is optional; re-render the base at the caller's width below.
+			// Decoration is optional; preserve the completed same-render rows below.
 		}
-		if (result?.decorated) {
-			return result.lines;
-		}
-		return clampRenderedLines(this.base.render(width), width);
+		if (result?.decorated) return result.lines;
+		return clampRenderedLines(captured.value, width);
 	}
 
 	invalidate(): void {

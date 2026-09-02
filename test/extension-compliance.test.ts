@@ -7,10 +7,12 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
+	AssistantMessageComponent,
 	initTheme,
 	ModelSelectorComponent,
 	SettingsSelectorComponent,
@@ -18,6 +20,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import {
+	discoverAccentRailLayoutPatchTargetFromEntrypoint,
+	ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR,
+} from "../extensions/zentui/accent-rail-layout-patch";
 import {
 	defaultConfig,
 	type ExtensionStatusPlacement,
@@ -41,6 +47,14 @@ import {
 } from "../extensions/zentui/ui";
 import { installUserMessageStyle as installUserMessageStyleProduction } from "../extensions/zentui/user-message";
 import { sanitizeUserMessageSourceText } from "../extensions/zentui/user-message-osc";
+
+const localPiTuiEntry = createRequire(import.meta.url).resolve("@earendil-works/pi-tui");
+const localPiTuiVersion = (
+	JSON.parse(readFileSync(join(dirname(localPiTuiEntry), "../package.json"), "utf8")) as {
+		version: string;
+	}
+).version;
+const localSupportsAccentRailLayoutPatch = /^0\.84\.\d+$/.test(localPiTuiVersion);
 
 const isolatedAgentDir = vi.hoisted(() => {
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -95,8 +109,13 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	sessionLifecycle: inactiveSessionLifecycle,
 	getConfig: () => defaultConfig,
 	setEditorComponent: () => ({ applied: true }),
+	setPolished() {},
+	setPolishedCopyFriendly() {},
+	setAccentRail() {},
 	setMinimalist() {},
 	setUserMessagesComponent() {},
+	thinkingStepsCapability: { available: false },
+	setThinkingStepsComponent: () => ({ applied: true }),
 	setWorkingLineComponent: () => ({ applied: true }),
 	setSelectorBordersComponent() {},
 	setFooterComponent() {},
@@ -161,6 +180,7 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 					: messages.colorSource,
 				styles: { ...messages.styles },
 			},
+			thinkingSteps: { ...config.components.thinkingSteps },
 			workingLine: {
 				...config.components.workingLine,
 				messages: {
@@ -496,7 +516,7 @@ function stripTestTags(line: string): string {
 
 function loadExtension(options: { thinkingLevel?: string; commands?: Map<string, unknown> } = {}) {
 	const handlers = new Map<string, Handler[]>();
-	zentui({
+	const api = {
 		on(eventName: string, handler: Handler) {
 			handlers.set(eventName, [...(handlers.get(eventName) ?? []), handler]);
 		},
@@ -506,7 +526,8 @@ function loadExtension(options: { thinkingLevel?: string; commands?: Map<string,
 		getThinkingLevel() {
 			return options.thinkingLevel ?? "off";
 		},
-	} as never);
+	} as Record<string, unknown>;
+	zentui(api as never);
 	return handlers;
 }
 
@@ -694,6 +715,48 @@ describe("fixed-editor retirement contract", () => {
 });
 
 describe("Pi docs compliance", () => {
+	it("does not register a public Thinking Markdown transformer or command", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ components: { thinkingSteps: { enabled: false, mode: "tree" } } }),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const indexSource = readFileSync(
+			join(import.meta.dirname, "../extensions/zentui/index.ts"),
+			"utf8",
+		);
+		expect(indexSource).not.toContain("registerMarkdown" + "Transformer");
+		const ctx = makeContext();
+		await emit(handlers, "session_start", ctx);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(commands.has("thinking-steps")).toBe(false);
+	});
+
+	it("reloads external Thinking configuration synchronously for each session startup", async () => {
+		const configPath = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(
+			configPath,
+			JSON.stringify({ components: { thinkingSteps: { enabled: false, mode: "tree" } } }),
+		);
+		const nativeUpdate = AssistantMessageComponent.prototype.updateContent;
+		const handlers = loadExtension();
+		const ctx = makeContext();
+
+		await emit(handlers, "session_start", ctx);
+		expect(AssistantMessageComponent.prototype.updateContent).toBe(nativeUpdate);
+		await emit(handlers, "session_shutdown", ctx);
+
+		writeFileSync(
+			configPath,
+			JSON.stringify({ components: { thinkingSteps: { enabled: true, mode: "rail" } } }),
+		);
+		await emit(handlers, "session_start", ctx);
+		expect(AssistantMessageComponent.prototype.updateContent).not.toBe(nativeUpdate);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(AssistantMessageComponent.prototype.updateContent).toBe(nativeUpdate);
+	});
+
 	it("derives lazy data requirements from only the active wide and compact candidates", () => {
 		const starship = defaultConfig.components.footer.styles.starship;
 		const customWide = {
@@ -1345,6 +1408,7 @@ describe("Pi docs compliance", () => {
 					settings.handleInput("\x1b[B");
 					settings.handleInput(" ");
 					settings.handleInput(" ");
+					settings.handleInput(" ");
 				},
 			},
 		});
@@ -1463,7 +1527,7 @@ describe("Pi docs compliance", () => {
 				keybindings as never,
 			);
 			const activeRender = activeEditor.render(80);
-			expect(activeRender).toContain("third-party:80");
+			expect(activeRender).toContain("third-party:78");
 			expect(zentuiLayers(activeRender)).toBe(1);
 			expect(zentuiLayers(opaqueEditor.render(80))).toBe(1);
 			activeEditor.handleInput("x");
@@ -2029,6 +2093,10 @@ describe("Pi docs compliance", () => {
 		["opencode-copy-friendly", "framed-copy-friendly"],
 		["opencode-copy-friendly", "compact"],
 		["opencode-copy-friendly", "labeled"],
+		["accent-rail", "framed"],
+		["accent-rail", "framed-copy-friendly"],
+		["accent-rail", "compact"],
+		["accent-rail", "labeled"],
 		["minimalist", "framed"],
 		["minimalist", "framed-copy-friendly"],
 		["minimalist", "compact"],
@@ -2058,6 +2126,7 @@ describe("Pi docs compliance", () => {
 
 		if (editorStyle === "opencode") expect(editorRendered).toContain("│");
 		else if (editorStyle === "opencode-copy-friendly") expect(editorRendered).not.toContain("│");
+		else if (editorStyle === "accent-rail") expect(editorRendered).toContain("▎ draft");
 		else expect(editorRendered).toContain("╭");
 		const plainMessage = stripPromptMarks(messageRendered);
 		if (messageStyle === "framed") expect(plainMessage).toContain("────");
@@ -3328,7 +3397,7 @@ describe("Pi docs compliance", () => {
 			getExtensionStatuses: () => new Map<string, string>(),
 		});
 
-		expect(editor.render(80)).toEqual(["third-party-80", "draft", "help"]);
+		expect(editor.render(80)).toEqual(["third-party-76", "draft", "help"]);
 		expect(footer?.render(80).length).toBeGreaterThan(0);
 
 		footer?.dispose?.();
@@ -5009,8 +5078,11 @@ describe("Pi docs compliance", () => {
 		assertSingleFrame(third);
 	});
 
-	it("preserves every autocomplete row outside multiply wrapped branded frames", () => {
-		const config = { ...defaultConfig, editorMetadataFormat: "autocomplete-meta" };
+	it("preserves every native autocomplete row outside multiply wrapped branded frames", () => {
+		const config = structuredClone(defaultConfig);
+		config.editorMetadataFormat = "autocomplete-meta";
+		config.components.editor.styles.opencode.metadataFormat = "autocomplete-meta";
+		config.components.editor.styles.opencode.completionMenu = "native";
 		const base = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
@@ -5721,7 +5793,7 @@ describe("Pi docs compliance", () => {
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Appearance");
-		expect(themeLines.join("\n")).toContain("(1/8)");
+		expect(themeLines.join("\n")).toContain("(1/9)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -5839,7 +5911,7 @@ describe("Pi docs compliance", () => {
 					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput?: (data: string) => void;
 					};
-					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 3; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
@@ -5911,7 +5983,7 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -5929,7 +6001,7 @@ describe("Pi docs compliance", () => {
 			"Separator: pipe",
 		]);
 		expect(dependencyRenderRequests).toBe(4);
-		expect(tuiRenderRequests).toBe(8);
+		expect(tuiRenderRequests).toBe(9);
 	});
 
 	it("cycles branch length presets and returns custom JSON values to full", async () => {
@@ -5980,7 +6052,7 @@ describe("Pi docs compliance", () => {
 						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 							handleInput?: (data: string) => void;
 						};
-						for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
+						for (let index = 0; index < 7; index += 1) component.handleInput?.("\t");
 						component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
@@ -6137,6 +6209,7 @@ describe("Pi docs compliance", () => {
 			| "Appearance"
 			| "Editor"
 			| "User messages"
+			| "Thinking"
 			| "Working line"
 			| "Footer"
 			| "Segments"
@@ -6147,6 +6220,7 @@ describe("Pi docs compliance", () => {
 			"Appearance",
 			"Editor",
 			"User messages",
+			"Thinking",
 			"Working line",
 			"Footer",
 			"Segments",
@@ -6405,7 +6479,7 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(8);
+		expect(tuiRenderRequests).toBe(9);
 	});
 
 	it("does not show inactive saved placements in the extension segments tab", async () => {
@@ -7009,6 +7083,144 @@ describe("three-state Footer lifecycle", () => {
 		expect(harness.factory).toBe(replacement);
 	});
 
+	it("reports the Accent Rail layout diagnostic only when debug logging is enabled", async () => {
+		const previousEntrypoint = process.argv[1];
+		const previousDebug = process.env.ZENTUI_DEBUG;
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		process.argv[1] = join(isolatedAgentDir.path, "missing-pi-entrypoint.js");
+		process.env.ZENTUI_DEBUG = "1";
+		const handlers = loadExtension();
+		const ctx = makeContext();
+		try {
+			await emit(handlers, "session_start", ctx);
+			expect(error).toHaveBeenCalledWith(
+				"[zentui] Accent Rail fullscreen layout patch: host-module-unavailable",
+			);
+			await emit(handlers, "session_shutdown", ctx);
+		} finally {
+			process.argv[1] = previousEntrypoint;
+			if (previousDebug === undefined) delete process.env.ZENTUI_DEBUG;
+			else process.env.ZENTUI_DEBUG = previousDebug;
+			error.mockRestore();
+		}
+	});
+
+	it.skipIf(!localSupportsAccentRailLayoutPatch)(
+		"installs and restores the fullscreen Accent Rail layout patch with the owned outer editor",
+		async () => {
+			writeFileSync(
+				join(isolatedAgentDir.path, "zentui.json"),
+				JSON.stringify({
+					projectRefreshIntervalMs: 0,
+					components: {
+						editor: { enabled: true, style: "accent-rail" },
+						userMessages: { enabled: false },
+						selectorBorders: { enabled: false },
+						footer: { style: "hidden" },
+					},
+				}),
+			);
+			let editorFactory: unknown;
+			const ctx = makeContext({
+				ui: {
+					theme: makeTheme(),
+					setFooter() {},
+					setEditorComponent(factory: unknown) {
+						editorFactory = factory;
+					},
+					getEditorComponent: () => editorFactory,
+				},
+			});
+			const require = createRequire(import.meta.url);
+			const tuiEntry = require.resolve("@earendil-works/pi-tui");
+			const hostEntrypoint = join(dirname(tuiEntry), "../../pi-coding-agent/dist/cli.js");
+			const previousEntrypoint = process.argv[1];
+			process.argv[1] = hostEntrypoint;
+			const handlers = loadExtension();
+			try {
+				await emit(handlers, "session_start", ctx);
+				const editor = (
+					editorFactory as (...args: unknown[]) => {
+						render(width: number): string[];
+						invalidate(): void;
+					}
+				)(
+					{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+					{ borderColor: (text: string) => text, selectList: {} } as never,
+					{} as never,
+				);
+				expect(Object.hasOwn(editor, ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR)).toBe(true);
+				const target = await discoverAccentRailLayoutPatchTargetFromEntrypoint(hostEntrypoint);
+				expect(target?.version).toBe(localPiTuiVersion);
+				const editorContainer = {
+					children: [editor],
+					render: () => ["rail"],
+					invalidate() {},
+				};
+				const stack = Object.create(target?.prototype ?? null) as Record<PropertyKey, unknown>;
+				stack.entries = [{ component: editorContainer, shrink: 1, minSize: 3 }];
+				stack.layoutType = "vstack";
+				stack.gap = 0;
+				stack.align = "stretch";
+				const layout = () =>
+					(
+						stack[Symbol.for("@earendil-works/pi-tui/layout-node")] as () => {
+							entries: Array<{ component: { render(): string[] }; minSize?: number }>;
+						}
+					)();
+				const adjusted = layout().entries[0];
+				expect(adjusted?.minSize).toBe(3);
+				expect(adjusted?.component).not.toBe(editorContainer);
+				expect(adjusted?.component.render()).toEqual(["", "rail"]);
+
+				await emit(handlers, "session_shutdown", ctx);
+				expect(layout().entries[0]?.minSize).toBe(3);
+				expect(layout().entries[0]?.component).toBe(editorContainer);
+			} finally {
+				process.argv[1] = previousEntrypoint;
+			}
+		},
+	);
+
+	it("marks only the outer editor when wrapping a third-party factory", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				projectRefreshIntervalMs: 0,
+				components: { editor: { enabled: true, style: "accent-rail" } },
+			}),
+		);
+		const baseEditor = {
+			render: (width: number) => ["─".repeat(width), "third-party", "─".repeat(width)],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		};
+		const baseFactory = () => baseEditor;
+		let editorFactory: unknown = baseFactory;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		const handlers = loadExtension();
+		await emit(handlers, "session_start", ctx);
+		const outer = (editorFactory as (...args: unknown[]) => object)(
+			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+		);
+		expect(Object.hasOwn(outer, ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR)).toBe(true);
+		expect(Object.hasOwn(baseEditor, ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR)).toBe(false);
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
 	it("rebinds Footer across every live style transition", async () => {
 		initTheme(undefined, false);
 		const commands = new Map<string, unknown>();
@@ -7022,7 +7234,7 @@ describe("three-state Footer lifecycle", () => {
 			const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 4; index++) settings.handleInput("\t");
+			for (let index = 0; index < 5; index++) settings.handleInput("\t");
 			settings.handleInput(" ");
 		};
 		const ctx = makeContext({ ui: harness.ui });

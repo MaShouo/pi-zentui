@@ -11,8 +11,10 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import {
+	type AccentRailEditorStyleConfig,
 	type ColorSource,
 	type CompactFooterMaxLines,
+	type CompletionMenuStyle,
 	type ContextStyle,
 	type EditorBorderColorMode,
 	type EditorComponentConfig,
@@ -38,9 +40,13 @@ import {
 	type MinimalistConfig,
 	type ModelLabelSource,
 	type PathDisplayConfig,
+	type PolishedCopyFriendlyEditorStyleConfig,
+	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
+	type ThinkingStepsComponentConfig,
+	type ThinkingStepsMode,
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
@@ -52,10 +58,12 @@ import { isIconMode } from "./icons";
 import type { SessionLifecycle } from "./session-lifecycle";
 import {
 	renderEditorSettingsPreview,
+	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_WIDTH,
 } from "./settings-previews";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, safeThemeFg } from "./style";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
 import {
 	buildWorkingLinePreviewFrames,
 	normalizeWorkingLineMessages,
@@ -73,7 +81,7 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
 const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
-const pathDisplayModeValues = ["basename", "full"];
+const pathDisplayModeValues: PathDisplayConfig["mode"][] = ["basename", "repository", "full"];
 const pathDepthValues = ["0", "1", "2", "3", "4", "5"];
 const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"];
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
@@ -81,6 +89,7 @@ const modelLabelValues: ModelLabelSource[] = ["id", "name"];
 const editorStyleLabels: Record<EditorStyle, string> = {
 	opencode: "Opencode",
 	"opencode-copy-friendly": "Opencode (copy-friendly)",
+	"accent-rail": "Accent Rail",
 	minimalist: "Minimalist",
 };
 const editorStyleValues = Object.values(editorStyleLabels);
@@ -97,6 +106,8 @@ const footerStyleLabels: Record<FooterStyle, string> = {
 	hidden: "Hidden",
 };
 const footerStyleValues = Object.values(footerStyleLabels);
+const completionMenuValues: CompletionMenuStyle[] = ["palette", "native"];
+const accentRailSurfaceValues = ["filled", "transparent"];
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
@@ -125,11 +136,22 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	"Custom…",
 ];
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
+const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
+	rail: "Rail",
+	tree: "Tree",
+	streaming: "Streaming",
+};
+const thinkingStepsModeValues = (startupMode: ThinkingStepsMode): string[] => {
+	if (startupMode === "streaming") return ["Streaming", "Tree", "Rail"];
+	if (startupMode === "rail") return ["Rail", "Tree", "Streaming"];
+	return ["Tree", "Rail", "Streaming"];
+};
 
 const settingsSections = [
 	"appearance",
 	"editor",
 	"userMessages",
+	"thinkingSteps",
 	"workingLine",
 	"footer",
 	"segments",
@@ -157,12 +179,54 @@ type SettingsOutcome =
 	| "edit-working-line-spinner-speed"
 	| "edit-working-line-text-speed";
 
+type ThinkingControllerState = Readonly<{
+	available: boolean;
+	rendererAvailable?: boolean;
+	streamingAvailable?: boolean;
+	streamingPoisoned?: boolean;
+	active: boolean;
+	activeMode?: ThinkingStepsMode;
+	startup: Readonly<ThinkingStepsComponentConfig>;
+	displaced: boolean;
+	restartRequired: boolean;
+	reason?: string;
+}>;
+
+type ThinkingStepsSettingsCapability =
+	| Readonly<{ available: boolean }>
+	| Readonly<{ readonly state: ThinkingControllerState }>;
+
+function experimentalThinkingCapability(
+	capability: ThinkingStepsSettingsCapability,
+): ThinkingControllerState {
+	return "state" in capability
+		? capability.state
+		: {
+				available: capability.available,
+				active: false,
+				startup: { enabled: false, mode: "tree" },
+				displaced: false,
+				restartRequired: false,
+			};
+}
+
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
 	setEditorComponent: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
+	setPolished: (patch: Partial<PolishedEditorStyleConfig>, ctx: ExtensionContext) => void;
+	setPolishedCopyFriendly: (
+		patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
+		ctx: ExtensionContext,
+	) => void;
+	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	thinkingStepsCapability: ThinkingStepsSettingsCapability;
+	setThinkingStepsComponent: (
+		patch: Partial<ThinkingStepsComponentConfig>,
+		ctx: ExtensionContext,
+	) => ApplyResult;
 	setWorkingLineComponent: (patch: WorkingLineComponentPatch, ctx: ExtensionContext) => ApplyResult;
 	setSelectorBordersComponent: (
 		patch: Partial<SelectorBordersComponentConfig>,
@@ -197,6 +261,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	appearance: "Appearance",
 	editor: "Editor",
 	userMessages: "User messages",
+	thinkingSteps: "Thinking (Experimental)",
 	workingLine: "Working line",
 	footer: "Footer",
 	segments: "Segments",
@@ -292,6 +357,11 @@ function userMessageStyleLabel(style: UserMessageStyle): string {
 }
 function userMessageStyleId(label: string): UserMessageStyle | undefined {
 	return (Object.entries(userMessageStyleLabels) as Array<[UserMessageStyle, string]>).find(
+		([, value]) => value === label,
+	)?.[0];
+}
+function thinkingStepsModeId(label: string): ThinkingStepsMode | undefined {
+	return (Object.entries(thinkingStepsModeLabels) as Array<[ThinkingStepsMode, string]>).find(
 		([, value]) => value === label,
 	)?.[0];
 }
@@ -451,7 +521,7 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 		{
 			id: "editorStyle",
 			label: "Editor style",
-			description: "Use Opencode rails or a compact minimalist frame.",
+			description: "Use Opencode, Accent Rail, or a compact Minimalist frame.",
 			currentValue: editorStyleLabel(editor.style),
 			values: editorStyleValues,
 		},
@@ -482,6 +552,36 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			description: "Show Pi's native wrapped-row counts in editor borders.",
 			currentValue: featureValue(editor.viewportIndicators),
 			values: featureStateValues,
+		},
+	];
+}
+
+function buildPolishedEditorStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	const editor = config.components.editor;
+	const style =
+		editor.style === "opencode-copy-friendly"
+			? editor.styles["opencode-copy-friendly"]
+			: editor.styles.opencode;
+	return [
+		{
+			id: "opencodeCompletionMenu",
+			label: "Completion menu",
+			description: "Use Pi's native list or the full-width Opencode palette shell.",
+			currentValue: style.completionMenu,
+			values: completionMenuValues,
+		},
+	];
+}
+
+function buildAccentRailEditorStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	const accentRail = config.components.editor.styles["accent-rail"];
+	return [
+		{
+			id: "accentRailSurface",
+			label: "Accent Rail surface",
+			description: "Fill input and autocomplete surfaces or keep them transparent.",
+			currentValue: accentRail.transparent ? "transparent" : "filled",
+			values: accentRailSurfaceValues,
 		},
 	];
 }
@@ -567,6 +667,32 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 	];
 }
+function buildThinkingStepsItems(
+	config: PolishedTuiConfig,
+	capability: ThinkingStepsSettingsCapability,
+): SettingItem[] {
+	const thinkingSteps = config.components.thinkingSteps;
+	const controller = experimentalThinkingCapability(capability);
+	const status = formatThinkingStatus(thinkingStatusLabels(thinkingSteps, controller));
+	const enabledDescription = `${status} Live switching supports Streaming → Rail/Tree and Rail ↔ Tree. Entering Streaming, first enable, and re-enable after live disable require restart. Private renderer may break after Pi updates.`;
+	return [
+		{
+			id: "thinkingStepsEnabled",
+			label: "Enabled",
+			description: enabledDescription,
+			currentValue: featureValue(thinkingSteps.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "thinkingStepsMode",
+			label: "Mode",
+			description: `${status} Rail shows every parsed label; Tree shows the latest five per contiguous run; both follow Pi thinking visibility, and unsafe or unstructured content remains native. Streaming folds to the latest five host-rendered rows and owns the configured thinking toggle only when active. Incompatibility uses native thinking.`,
+			currentValue: thinkingStepsModeLabels[thinkingSteps.mode],
+			values: thinkingStepsModeValues(controller.startup.mode),
+		},
+	];
+}
+
 function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 	const workingLine = config.components.workingLine;
 	const staticText = workingLine.textAnimation === "disabled";
@@ -657,7 +783,7 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 		{
 			id: "workingLineThought",
-			label: "Thinking",
+			label: "Thinking time",
 			description: "Show cumulative wall-clock thinking time and active updates.",
 			currentValue: featureValue(workingLine.segments.thought),
 			values: featureStateValues,
@@ -746,14 +872,14 @@ function buildStarshipFooterStyleItems(config: PolishedTuiConfig): SettingItem[]
 		{
 			id: "pathDisplay",
 			label: "Path display",
-			description: "Show cwd as basename or full path.",
+			description: "Show cwd as basename, repository-relative, or full path.",
 			currentValue: footer.pathDisplay.mode,
 			values: pathDisplayModeValues,
 		},
 		{
 			id: "pathDepth",
 			label: "Path depth",
-			description: "Trailing directories in full mode (0 = all).",
+			description: "Final component count for Full and Repository (0 = unlimited).",
 			currentValue: String(footer.pathDisplay.depth),
 			values: pathDepthValues,
 		},
@@ -914,6 +1040,7 @@ function buildSectionItems(
 	section: SettingsSection,
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
+	thinkingStepsCapability: ThinkingStepsSettingsCapability,
 ): SettingItem[] {
 	switch (section) {
 		case "appearance":
@@ -921,12 +1048,21 @@ function buildSectionItems(
 		case "editor":
 			return [
 				...buildEditorItems(config),
+				...(config.components.editor.style === "opencode" ||
+				config.components.editor.style === "opencode-copy-friendly"
+					? buildPolishedEditorStyleItems(config)
+					: []),
+				...(config.components.editor.style === "accent-rail"
+					? buildAccentRailEditorStyleItems(config)
+					: []),
 				...(config.components.editor.style === "minimalist"
 					? buildMinimalistEditorStyleItems(config)
 					: []),
 			];
 		case "userMessages":
 			return buildUserMessagesItems(config);
+		case "thinkingSteps":
+			return buildThinkingStepsItems(config, thinkingStepsCapability);
 		case "workingLine":
 			return buildWorkingLineItems(config);
 		case "footer":
@@ -1145,9 +1281,10 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					};
 					const notifyChange = (label: string, value: string, result?: ApplyResult) => {
 						deps.requestRender();
+						const detail = result?.reason?.trim();
 						ctx.ui.notify(
-							`${label}: ${value}${result && !result.applied ? ` (${result.reason ?? "reload Pi to apply this change"})` : ""}`,
-							"info",
+							`${label}: ${value}${detail ? ` (${detail})` : result && !result.applied ? " (reload Pi to apply this change)" : ""}`,
+							result && (!result.applied || detail) ? "warning" : "info",
 						);
 						startPreview();
 						tui.requestRender();
@@ -1170,6 +1307,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							activeSection,
 							deps.getConfig(),
 							deps.getActiveExtensionStatuses(),
+							deps.thinkingStepsCapability,
 						);
 						const list = new SettingsList(
 							items,
@@ -1232,6 +1370,28 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										notifyChange("Editor viewport indicators", newValue);
 										return;
 									}
+									if (
+										id === "opencodeCompletionMenu" &&
+										(newValue === "native" || newValue === "palette")
+									) {
+										const style = deps.getConfig().components.editor.style;
+										if (style === "opencode") deps.setPolished({ completionMenu: newValue }, ctx);
+										else if (style === "opencode-copy-friendly")
+											deps.setPolishedCopyFriendly({ completionMenu: newValue }, ctx);
+										else return;
+										settingsList.updateValue(id, newValue);
+										notifyChange("Completion menu", newValue);
+										return;
+									}
+									if (
+										id === "accentRailSurface" &&
+										(newValue === "filled" || newValue === "transparent")
+									) {
+										deps.setAccentRail({ transparent: newValue === "transparent" }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Accent Rail surface", newValue);
+										return;
+									}
 									if (id.startsWith("minimalist")) {
 										if (
 											id === "minimalistPathDisplay" &&
@@ -1288,6 +1448,23 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										setMessages({ colorSource: newValue }, ctx);
 										settingsList.updateValue(id, newValue);
 										notifyChange("Message colors", newValue);
+										return;
+									}
+									if (id === "thinkingStepsEnabled" && enabled !== undefined) {
+										const result = deps.setThinkingStepsComponent({ enabled }, ctx);
+										settingsList = makeSettingsList("thinkingStepsEnabled");
+										notifyChange("Thinking (Experimental)", newValue, result);
+										return;
+									}
+									const selectedThinkingStepsMode =
+										id === "thinkingStepsMode" ? thinkingStepsModeId(newValue) : undefined;
+									if (selectedThinkingStepsMode) {
+										const result = deps.setThinkingStepsComponent(
+											{ mode: selectedThinkingStepsMode },
+											ctx,
+										);
+										settingsList = makeSettingsList("thinkingStepsMode");
+										notifyChange("Thinking (Experimental)", newValue, result);
 										return;
 									}
 									if (id === "workingLineEnabled" && enabled !== undefined) {
@@ -1486,7 +1663,10 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										notifyChange("Separator", newValue);
 										return;
 									}
-									if (id === "pathDisplay" && pathDisplayModeValues.includes(newValue as never)) {
+									if (
+										id === "pathDisplay" &&
+										pathDisplayModeValues.includes(newValue as PathDisplayConfig["mode"])
+									) {
 										deps.setPathDisplay({ mode: newValue as PathDisplayConfig["mode"] });
 										settingsList.updateValue(id, newValue);
 										notifyChange("Path display", newValue);
@@ -1586,6 +1766,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							return renderEditorSettingsPreview(deps.getConfig(), theme, previewWidth);
 						if (activeSection === "userMessages")
 							return renderUserMessageSettingsPreview(deps.getConfig(), theme, previewWidth);
+						if (activeSection === "thinkingSteps")
+							return renderThinkingStepsSettingsPreview(
+								deps.getConfig(),
+								theme,
+								previewWidth,
+								deps.thinkingStepsCapability,
+							);
 						if (activeSection === "workingLine" && preview && preview.frames.length > 0)
 							return [
 								truncateToWidth(

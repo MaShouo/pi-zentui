@@ -35,6 +35,7 @@ import {
 	formatRuntimeSegment,
 	formatTimeLabel,
 	formatUsernameHostLabel,
+	resolveContextUsage,
 } from "./format";
 import { isSakuraMacaronVisuals, pulsePhase, renderSakuraGradient } from "./gradient";
 import { resolveRuntimeSymbol } from "./icons";
@@ -211,6 +212,7 @@ export function installFooter(
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
 		getLiveContext?: () => LiveContextOverride | undefined;
+		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
 	},
 ): void {
@@ -253,10 +255,13 @@ export function installFooter(
 				const sakuraVisuals = isSakuraMacaronVisuals(config.colors.editorBorder, theme);
 				const iconMode = config.icons.mode;
 				const phase = pulsePhase();
+				const pathDisplay = config.components.footer.styles.starship.pathDisplay;
 				const formattedCwd = sanitizeEditorMetadataText(
 					formatCwdLabel(ctx.cwd, config.icons.cwd, {
-						mode: config.components.footer.styles.starship.pathDisplay.mode,
-						depth: config.components.footer.styles.starship.pathDisplay.depth,
+						mode: pathDisplay.mode,
+						depth: pathDisplay.depth,
+						repositoryRoot:
+							pathDisplay.mode === "repository" ? hooks.getRepositoryRoot?.(ctx.cwd) : undefined,
 					}),
 				);
 				const branch = sanitizeEditorMetadataText(state.branch ?? "") || undefined;
@@ -311,14 +316,10 @@ export function installFooter(
 							config.components.footer.styles.starship.gitBranch.maxLength,
 						)
 					: undefined;
-				const contextUsage = ctx.getContextUsage();
-				const liveContext = hooks.getLiveContext?.();
-				const contextWindow = ctx.model?.contextWindow ?? contextUsage?.contextWindow;
-				const useLiveContext =
-					liveContext !== undefined && contextWindow !== undefined && contextWindow > 0;
-				const contextPercent = useLiveContext
-					? (liveContext.tokens / contextWindow) * 100
-					: contextUsage?.percent;
+				const { percent: contextPercent, contextWindow } = resolveContextUsage(
+					ctx,
+					hooks.getLiveContext?.(),
+				);
 				const tier = contextColorTier(
 					contextPercent,
 					config.components.footer.styles.starship.contextThresholds,
@@ -772,18 +773,7 @@ export function installFooter(
 				if (reflowed) return frameRows(reflowed);
 
 				const chunkBudget = compactChunkBudget(innerWidth);
-				const compactCwdLabel = truncateToWidth(
-					renderStyleForSource(
-						theme,
-						colorSource,
-						config.colors.cwd,
-						sanitizeEditorMetadataText(
-							formatCwdLabel(ctx.cwd, config.icons.cwd, { mode: "basename", depth: 0 }),
-						),
-					),
-					chunkBudget,
-					"…",
-				);
+				const compactCwdLabel = truncateToWidth(cwdLabel, chunkBudget, "…");
 				const compactSessionNameLabel = truncateToWidth(
 					sessionNameLabel,
 					Math.max(1, chunkBudget - visibleWidth("in ")),

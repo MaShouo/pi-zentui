@@ -295,17 +295,24 @@ export function buildCacheWriteLabel(cacheWrite: number): string {
 	return cacheWrite > 0 ? `W${formatCount(cacheWrite)}` : "";
 }
 
-export function buildTokenLabel(totals: UsageTotals, cacheHitIcon = "󰆼"): string {
+export function buildSessionTokenLabel(totals: Pick<UsageTotals, "input" | "output">): string {
 	const parts: string[] = [];
 	if (totals.input) parts.push(`↑${formatCount(totals.input)}`);
 	if (totals.output) parts.push(`↓${formatCount(totals.output)}`);
-
-	const hasCacheTokens = totals.cacheRead > 0 || totals.cacheWrite > 0;
-	if (hasCacheTokens && totals.latestCacheHitRate !== undefined) {
-		const cacheHitRate = `${totals.latestCacheHitRate.toFixed(1)}%`;
-		parts.push(cacheHitIcon ? `${cacheHitIcon} ${cacheHitRate}` : cacheHitRate);
-	}
 	return parts.length > 0 ? parts.join(" ") : "↑0 ↓0";
+}
+
+export function formatCacheHitRate(rate: number | undefined): string {
+	return `${rate !== undefined && Number.isFinite(rate) ? rate.toFixed(1) : "0.0"}%`;
+}
+
+export function buildTokenLabel(totals: UsageTotals, cacheHitIcon = "󰆼"): string {
+	const tokenLabel = buildSessionTokenLabel(totals);
+	const hasCacheTokens = totals.cacheRead > 0 || totals.cacheWrite > 0;
+	if (!hasCacheTokens || totals.latestCacheHitRate === undefined) return tokenLabel;
+
+	const cacheHitRate = formatCacheHitRate(totals.latestCacheHitRate);
+	return `${tokenLabel} ${cacheHitIcon ? `${cacheHitIcon} ` : ""}${cacheHitRate}`;
 }
 
 export function buildCostLabel(totals: UsageTotals): string {
@@ -403,10 +410,29 @@ export function buildContextDisplayLabel(options: {
 	return text;
 }
 
-export function buildContextLabel(ctx: ExtensionContext): string {
+export type ContextUsageSnapshot = {
+	percent: number | undefined;
+	contextWindow: number | undefined;
+};
+
+export function resolveContextUsage(
+	ctx: Pick<ExtensionContext, "model" | "getContextUsage">,
+	live?: { tokens: number },
+): ContextUsageSnapshot {
 	const usage = ctx.getContextUsage();
 	const contextWindow = ctx.model?.contextWindow ?? usage?.contextWindow;
-	return formatContextPercentLabel(usage?.percent, contextWindow);
+	return {
+		percent:
+			live && contextWindow && contextWindow > 0
+				? (live.tokens / contextWindow) * 100
+				: (usage?.percent ?? undefined),
+		contextWindow,
+	};
+}
+
+export function buildContextLabel(ctx: ExtensionContext): string {
+	const { percent, contextWindow } = resolveContextUsage(ctx);
+	return formatContextPercentLabel(percent, contextWindow);
 }
 
 export function formatRuntimeSegment(
@@ -448,9 +474,10 @@ export function formatPackageVersionSegment(
 
 export type FormatCwdOptions = {
 	mode?: PathDisplayMode;
-	/** Trailing directory components to keep in full mode. 0 = unlimited. */
+	/** Final path components to keep in full/repository mode. 0 = unlimited. */
 	depth?: number;
 	home?: string;
+	repositoryRoot?: string;
 };
 
 function normalizeDisplayPath(cwd: string): string {
@@ -493,8 +520,7 @@ function applyPathDepth(path: string, depth: number): string {
 export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwdOptions): string {
 	const mode = options?.mode ?? "basename";
 	const normalized = normalizeDisplayPath(cwd);
-	let pathText: string;
-	if (mode === "full") {
+	const fullPath = (depth = options?.depth ?? 0) => {
 		const home =
 			options?.home ??
 			(() => {
@@ -504,7 +530,25 @@ export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwd
 					return "";
 				}
 			})();
-		pathText = applyPathDepth(toHomePath(normalized, home), options?.depth ?? 0);
+		return applyPathDepth(toHomePath(normalized, home), depth);
+	};
+	let pathText: string;
+	if (mode === "full") {
+		pathText = fullPath();
+	} else if (mode === "repository") {
+		const root = options?.repositoryRoot ? normalizeDisplayPath(options.repositoryRoot) : undefined;
+		if (!root) {
+			pathText = fullPath(0);
+		} else {
+			const rootPrefix = root === "/" ? "/" : `${root}/`;
+			if (normalized !== root && !normalized.startsWith(rootPrefix)) {
+				// Unsafe roots fail open to the existing unlimited full path.
+				pathText = fullPath(0);
+			} else {
+				const relative = normalized === root ? "." : normalized.slice(rootPrefix.length);
+				pathText = relative === "." ? relative : applyPathDepth(relative, options?.depth ?? 0);
+			}
+		}
 	} else if (normalized === "/") {
 		pathText = "/";
 	} else {

@@ -26,6 +26,7 @@ import {
 	getExtensionStatusPlacement,
 	hasUnsupportedComponentStyle,
 	mergeConfig,
+	saveAccentRailEditorStylePatch,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
 	saveContextThresholdsPatch,
@@ -51,6 +52,7 @@ import {
 	saveSelectorBordersComponentPatch,
 	saveSeparatorPatch,
 	saveStarshipFooterStylePatch,
+	saveThinkingStepsComponentPatch,
 	saveUiFeaturesPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
@@ -102,9 +104,16 @@ describe("canonical config resolution", () => {
 				styles: {
 					opencode: {
 						metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+						completionMenu: "palette",
 					},
 					"opencode-copy-friendly": {
 						metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+						completionMenu: "palette",
+					},
+					"accent-rail": {
+						rail: "▎",
+						asciiRail: "|",
+						transparent: false,
 					},
 					minimalist: {
 						pathDisplay: "compact",
@@ -124,6 +133,7 @@ describe("canonical config resolution", () => {
 				colorSource: "theme",
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
+			thinkingSteps: { enabled: false, mode: "tree" },
 			workingLine: {
 				enabled: false,
 				turnSummary: true,
@@ -171,6 +181,74 @@ describe("canonical config resolution", () => {
 		expect(config.icons.cacheHit).toBe("󰆼");
 		expect(config.colors).toEqual(defaultConfig.colors);
 		expect(defaultConfig.components).toEqual(config.components);
+	});
+
+	it("normalizes Opencode completion menus independently", () => {
+		const config = mergeConfig({
+			components: {
+				editor: {
+					styles: {
+						opencode: { completionMenu: "native" },
+						"opencode-copy-friendly": { completionMenu: "invalid" },
+					},
+				},
+			},
+		});
+		expect(config.components.editor.styles.opencode.completionMenu).toBe("native");
+		expect(config.components.editor.styles["opencode-copy-friendly"].completionMenu).toBe(
+			"palette",
+		);
+	});
+
+	it("normalizes the canonical accent-rail style and its editor-owned roles", () => {
+		const config = mergeConfig({
+			colors: { editorRail: "bright-green", editorAccent: "error" },
+			components: {
+				editor: {
+					style: "accent-rail",
+					styles: { "accent-rail": { rail: "!", asciiRail: ":", transparent: true } },
+				},
+			},
+		});
+		expect(config.components.editor.style).toBe("accent-rail");
+		expect(config.components.editor.styles["accent-rail"]).toEqual({
+			rail: "!",
+			asciiRail: ":",
+			transparent: true,
+		});
+		expect(config.colors.editorRail).toBe("bright-green");
+		expect(config.colors.editorAccent).toBe("error");
+
+		const invalid = mergeConfig({
+			components: {
+				editor: {
+					styles: { "accent-rail": { rail: "", asciiRail: 1, transparent: "yes" } },
+				},
+			},
+		});
+		expect(invalid.components.editor.styles["accent-rail"]).toEqual({
+			rail: "▎",
+			asciiRail: "|",
+			transparent: false,
+		});
+	});
+
+	it("bridges explicit legacy branch colors into the independent Editor branch role", () => {
+		expect(mergeConfig({}).colors.editorGitBranch).toBeUndefined();
+
+		const legacyDefault = mergeConfig({ colors: { gitBranch: "bold purple" } }).colors;
+		expect(legacyDefault.gitBranch).toBe("bold purple");
+		expect(legacyDefault.editorGitBranch).toBe("bold purple");
+
+		const legacyCustom = mergeConfig({ colors: { gitBranch: "success" } }).colors;
+		expect(legacyCustom.gitBranch).toBe("success");
+		expect(legacyCustom.editorGitBranch).toBe("success");
+
+		const independent = mergeConfig({
+			colors: { gitBranch: "success", editorGitBranch: "accent" },
+		}).colors;
+		expect(independent.gitBranch).toBe("success");
+		expect(independent.editorGitBranch).toBe("accent");
 	});
 
 	it("ignores stale fixed-editor config forms without exposing runtime fields", () => {
@@ -490,6 +568,84 @@ describe("canonical config resolution", () => {
 		expect(FOOTER_FORMAT_VARIABLES).toEqual(
 			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),
 		);
+	});
+});
+
+describe("thinking-steps config", () => {
+	it("defaults independently and normalizes invalid canonical leaves", () => {
+		const first = mergeConfig({});
+		const second = mergeConfig({});
+		expect(first.components.thinkingSteps).toEqual({ enabled: false, mode: "tree" });
+		expect(first.components.thinkingSteps).not.toBe(second.components.thinkingSteps);
+		expect(
+			mergeConfig({ components: { thinkingSteps: { enabled: true, mode: "rail" } } }).components
+				.thinkingSteps,
+		).toEqual({ enabled: true, mode: "rail" });
+		expect(
+			mergeConfig({
+				components: {
+					thinkingSteps: { enabled: true, mode: "streaming" },
+				},
+			}).components.thinkingSteps,
+		).toEqual({ enabled: true, mode: "streaming" });
+		expect(
+			mergeConfig({
+				components: {
+					thinkingSteps: { enabled: true, mode: "streaming-experimental" },
+				},
+			}).components.thinkingSteps,
+		).toEqual({ enabled: true, mode: "streaming" });
+		for (const mode of [undefined, "native", "Rail"]) {
+			expect(
+				mergeConfig({ components: { thinkingSteps: { enabled: "yes", mode } } }).components
+					.thinkingSteps,
+			).toEqual({ enabled: false, mode: "tree" });
+		}
+	});
+
+	it("persists atomic component patches and preserves unknown keys", () => {
+		withConfig(
+			{
+				futureTop: { keep: true },
+				components: { thinkingSteps: { future: { keep: true } } },
+			},
+			(path) => {
+				const saved = saveThinkingStepsComponentPatch({ enabled: true, mode: "rail" }, path);
+				const raw = readRaw(path);
+				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "rail" });
+				expect(raw.components.thinkingSteps).toMatchObject({
+					enabled: true,
+					mode: "rail",
+					future: { keep: true },
+				});
+				expect(raw.futureTop).toEqual({ keep: true });
+				expect(configTempFiles(join(path, ".."))).toEqual([]);
+			},
+		);
+	});
+
+	it("normalizes the one-window Streaming migration alias on the next save", () => {
+		withConfig(
+			{ components: { thinkingSteps: { enabled: false, mode: "streaming-experimental" } } },
+			(path) => {
+				const saved = saveThinkingStepsComponentPatch({ enabled: true }, path);
+				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "streaming" });
+				expect(readRaw(path).components.thinkingSteps).toMatchObject({
+					enabled: true,
+					mode: "streaming",
+				});
+			},
+		);
+	});
+
+	it("refuses to overwrite corrupt files", () => {
+		withConfig(undefined, (path) => {
+			writeFileSync(path, "{broken");
+			expect(() => saveThinkingStepsComponentPatch({ enabled: true }, path)).toThrow(
+				/Refusing to save Zentui config/,
+			);
+			expect(readFileSync(path, "utf8")).toBe("{broken");
+		});
 	});
 });
 
@@ -1146,8 +1302,12 @@ describe("canonical snapshot persistence", () => {
 
 	it("supports every typed component saver without discarding inactive styles", () => {
 		withConfig(undefined, (path) => {
-			savePolishedEditorStylePatch({ metadataFormat: "$provider" }, path);
-			savePolishedCopyFriendlyEditorStylePatch({ metadataFormat: "$model" }, path);
+			savePolishedEditorStylePatch({ metadataFormat: "$provider", completionMenu: "native" }, path);
+			savePolishedCopyFriendlyEditorStylePatch(
+				{ metadataFormat: "$model", completionMenu: "palette" },
+				path,
+			);
+			saveAccentRailEditorStylePatch({ transparent: true }, path);
 			saveMinimalistEditorStylePatch({ showGit: false, contextGauge: true }, path);
 			saveUserMessagesComponentPatch({ enabled: false, colorSource: "terminal" }, path);
 			saveSelectorBordersComponentPatch({ enabled: false, colorSource: "terminal" }, path);
@@ -1159,9 +1319,14 @@ describe("canonical snapshot persistence", () => {
 			const config = mergeConfig(readRaw(path));
 			expect(config.components.editor.styles.opencode).toEqual({
 				metadataFormat: "$provider",
+				completionMenu: "native",
 			});
 			expect(config.components.editor.styles["opencode-copy-friendly"]).toEqual({
 				metadataFormat: "$model",
+				completionMenu: "palette",
+			});
+			expect(config.components.editor.styles["accent-rail"]).toMatchObject({
+				transparent: true,
 			});
 			expect(config.components.editor.styles.minimalist).toMatchObject({
 				showGit: false,
@@ -1302,6 +1467,7 @@ describe("compatibility saver recipes", () => {
 				"editor",
 				"footer",
 				"selectorBorders",
+				"thinkingSteps",
 				"userMessages",
 				"workingLine",
 			]);
@@ -1329,6 +1495,7 @@ describe("mergeConfig", () => {
 		expect(config.colors.tokens).toBe("bright-black");
 		expect(config.colors.extensionStatus).toBe("bright-black");
 		expect(config.colors.editorAccent).toBeUndefined();
+		expect(config.colors.editorRail).toBeUndefined();
 		expect(config.colors.editorPrompt).toBeUndefined();
 		expect(config.colors.editorBorder).toBeUndefined();
 		expect(config.colorSources).toEqual({
@@ -1598,6 +1765,16 @@ describe("mergeConfig", () => {
 			expect(raw.components.editor.style).toBe("minimalist");
 			expect(minimalist.editorStyle).toBe("minimalist");
 
+			const accentRail = saveEditorStyle("accent-rail", path);
+			raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(accentRail.editorStyle).toBe("accent-rail");
+			expect(raw.components.editor.style).toBe("accent-rail");
+			expect(raw.components.editor.styles["accent-rail"]).toEqual({
+				rail: "▎",
+				asciiRail: "|",
+				transparent: false,
+			});
+
 			const polished = saveEditorStyle("opencode", path);
 			raw = JSON.parse(readFileSync(path, "utf8"));
 			expect(polished.editorStyle).toBe("opencode");
@@ -1654,6 +1831,15 @@ describe("mergeConfig", () => {
 			mode: "full",
 			depth: 3,
 		});
+		expect(mergeConfig({ pathDisplay: { mode: "repository", depth: 2 } }).pathDisplay).toEqual({
+			mode: "repository",
+			depth: 2,
+		});
+		expect(
+			mergeConfig({
+				components: { footer: { styles: { starship: { pathDisplay: { mode: "repository" } } } } },
+			}).components.footer.styles.starship.pathDisplay,
+		).toEqual({ mode: "repository", depth: 0 });
 		expect(mergeConfig({ pathDisplay: { mode: "fish", depth: -3 } }).pathDisplay).toEqual({
 			mode: "basename",
 			depth: 0,
@@ -1862,6 +2048,7 @@ describe("mergeConfig", () => {
 				editorThinkingMedium: "thinkingMedium",
 				editorThinkingHigh: "thinkingHigh",
 				editorThinkingXhigh: "thinkingXhigh",
+				editorThinkingMax: "thinkingMax",
 			},
 		});
 
@@ -1875,6 +2062,7 @@ describe("mergeConfig", () => {
 		expect(config.colors.editorThinkingMedium).toBe("thinkingMedium");
 		expect(config.colors.editorThinkingHigh).toBe("thinkingHigh");
 		expect(config.colors.editorThinkingXhigh).toBe("thinkingXhigh");
+		expect(config.colors.editorThinkingMax).toBe("thinkingMax");
 	});
 
 	it("ignores invalid known values at runtime instead of trusting zentui.json", () => {

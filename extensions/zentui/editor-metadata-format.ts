@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ZentuiConfig } from "./config";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
+import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
 import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
 
 export type EditorMetadataValues = {
@@ -10,12 +11,23 @@ export type EditorMetadataValues = {
 	provider: string;
 	thinking: string;
 	sessionName: string;
+	contextPercent?: number;
+	contextWindow?: number;
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheHitRate?: number;
 };
 
 type RenderedTokens = {
 	styled: string;
 	hasDynamic: boolean;
 	hasNonEmptyDynamic: boolean;
+};
+
+export type EditorMetadataZones = {
+	left: string;
+	middle: string;
+	right: string;
 };
 
 const ESC = 0x1b;
@@ -132,6 +144,12 @@ function editorThinkingStyle(config: ZentuiConfig, level: string): string | unde
 			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
 		case "xhigh":
 			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+		case "max":
+			return (
+				config.colors.editorThinkingMax ??
+				config.colors.editorThinkingXhigh ??
+				config.colors.editorThinking
+			);
 		default:
 			return config.colors.editorThinking;
 	}
@@ -158,7 +176,16 @@ function renderVariable(
 							? thinking
 							: name === "session_name"
 								? values.sessionName
-								: "";
+								: name === "context"
+									? formatContextPercentLabel(values.contextPercent, values.contextWindow)
+									: name === "tokens"
+										? buildSessionTokenLabel({
+												input: values.inputTokens ?? 0,
+												output: values.outputTokens ?? 0,
+											})
+										: name === "cache_hit"
+											? formatCacheHitRate(values.cacheHitRate)
+											: "";
 	const plain = sanitizeEditorMetadataText(raw);
 	if (!plain) return { plain: "", styled: "" };
 
@@ -198,7 +225,7 @@ function renderVariable(
 			),
 		};
 	}
-	if (name === "session_name") {
+	if (name === "session_name" || name === "context" || name === "tokens" || name === "cache_hit") {
 		return { plain, styled: safeThemeFg(uiTheme, "border", plain) };
 	}
 	return { plain: "", styled: "" };
@@ -242,6 +269,41 @@ function renderTokens(
 	}
 
 	return { styled, hasDynamic, hasNonEmptyDynamic };
+}
+
+export function renderEditorMetadataFormatSplit(
+	format: string,
+	values: EditorMetadataValues,
+	uiTheme: Theme,
+	config: ZentuiConfig,
+): EditorMetadataZones {
+	const tokens = parseFooterFormat(sanitizeEditorMetadataText(format));
+	const fillIndices: number[] = [];
+	for (let index = 0; index < tokens.length; index++) {
+		if (tokens[index]?.kind === "fill") fillIndices.push(index);
+	}
+
+	const first = fillIndices[0];
+	const second = fillIndices[1];
+	if (first === undefined) {
+		return {
+			left: renderTokens(tokens, values, uiTheme, config).styled,
+			middle: "",
+			right: "",
+		};
+	}
+	if (second === undefined) {
+		return {
+			left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
+			middle: "",
+			right: renderTokens(tokens.slice(first + 1), values, uiTheme, config).styled,
+		};
+	}
+	return {
+		left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
+		middle: renderTokens(tokens.slice(first + 1, second), values, uiTheme, config).styled,
+		right: renderTokens(tokens.slice(second + 1), values, uiTheme, config).styled,
+	};
 }
 
 export function renderEditorMetadataFormat(

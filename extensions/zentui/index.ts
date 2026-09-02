@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -8,7 +6,15 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import {
+	type AccentRailLayoutPatchDiagnostic,
+	installHostAccentRailLayoutPatch,
+	markAccentRailLayoutEditor,
+	retainAccentRailLayoutPatchInstallation,
+} from "./accent-rail-layout-patch";
+import {
+	type AccentRailEditorStyleConfig,
 	type ContextStyle,
+	defaultConfig,
 	type EditorComponentConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
@@ -24,9 +30,12 @@ import {
 	loadConfig,
 	type MinimalistConfig,
 	type PathDisplayConfig,
+	type PolishedCopyFriendlyEditorStyleConfig,
+	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
+	saveAccentRailEditorStylePatch,
 	saveEditorComponentPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
@@ -34,10 +43,14 @@ import {
 	saveFooterComponentPatch,
 	saveIconsModePatch,
 	saveMinimalistEditorStylePatch,
+	savePolishedCopyFriendlyEditorStylePatch,
+	savePolishedEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
+	saveThinkingStepsComponentPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
+	type ThinkingStepsComponentConfig,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
@@ -48,7 +61,11 @@ import {
 } from "./editor-transfer";
 import { installFooter, installHiddenFooter } from "./footer";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
-import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
+import {
+	buildSessionDurationLabel,
+	invalidateUsageTotalsCache,
+	resolveContextUsage,
+} from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
 import { isSakuraMacaronVisuals } from "./gradient";
 import {
@@ -66,12 +83,14 @@ import {
 	startProjectRefreshInterval,
 } from "./project-refresh";
 import { applyProjectRefreshToState } from "./project-state";
+import { RepositoryRootController, type RepositoryRootRequest } from "./repository-root";
 import { readRuntimeInfo } from "./runtime";
 import { installSelectorBorderStyle, removeSelectorBorderStyle } from "./selector-border";
 import { SessionLifecycle } from "./session-lifecycle";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { createInitialState, type FooterState, modelLabelFor, syncState } from "./state";
 import { resolveFooterTelemetry } from "./telemetry";
+import { ThinkingExperimentalController } from "./thinking-experimental";
 import { installThinkingMessageStyle } from "./thinking-message";
 import { installToolExecutionStyle } from "./tool-execution";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
@@ -154,16 +173,6 @@ export function activeFooterReferences(config: ZentuiConfig): Set<string> {
 	return references;
 }
 
-function findRepositoryRoot(cwd: string): string | undefined {
-	let current = resolve(cwd);
-	while (true) {
-		if (existsSync(join(current, ".git"))) return current;
-		const parent = dirname(current);
-		if (parent === current) return undefined;
-		current = parent;
-	}
-}
-
 function isTuiContext(ctx: ExtensionContext): boolean {
 	try {
 		const mode = (ctx as ExtensionContext & { mode?: string }).mode;
@@ -178,7 +187,7 @@ export default function (pi: ExtensionAPI) {
 	const sessionLifecycle = new SessionLifecycle();
 	const editorOwnerToken = Symbol("zentui-editor-owner");
 
-	let currentConfig: PolishedTuiConfig = loadConfig();
+	let currentConfig: PolishedTuiConfig = structuredClone(defaultConfig);
 	// Keep the capability guard defensive for hosts with incomplete extension APIs.
 	if (typeof pi.registerEntryRenderer === "function") {
 		pi.registerEntryRenderer(TURN_SUMMARY_ENTRY_TYPE, (entry, options, theme) =>
@@ -202,8 +211,6 @@ export default function (pi: ExtensionAPI) {
 	let userMessageStyleInstalled = false;
 	let cleanupSelectorBorderStyle: () => void = () => {};
 	let selectorBorderStyleInstalled = false;
-	let cleanupSakuraVisuals: () => void = () => {};
-	let sakuraVisualsInstalled = false;
 	let installedFooterKind: InstalledFooterKind | undefined;
 	let installedFooterToken: symbol | undefined;
 	let editorInstalled = false;
@@ -217,13 +224,26 @@ export default function (pi: ExtensionAPI) {
 	let sessionTimerRequirements = "";
 	let lastDurationLabel = "";
 	let lastProjectCwd: string | undefined;
-	let requestedProjectCwd: string | undefined;
 	const agentDurationClock = new AgentDurationClock();
 	const interactionMetrics = new InteractionMetricsTracker();
 	let agentRunActive = false;
 	let minimalistProjectRoot: string | undefined;
+	const repositoryRoots = new RepositoryRootController();
 	let projectRefreshActive = false;
 	let activeTuiContext: ExtensionContext | undefined;
+	let cleanupAccentRailLayoutPatch: () => void = () => {};
+	let accentRailLayoutPatchInstallSerial = 0;
+
+	const recordAccentRailLayoutPatchDiagnostic = (
+		diagnostic: AccentRailLayoutPatchDiagnostic,
+		version?: string,
+	) => {
+		if (process.env.ZENTUI_DEBUG === "1") {
+			console.error(
+				`[zentui] Accent Rail fullscreen layout patch: ${diagnostic}${version ? ` (Pi TUI ${version})` : ""}`,
+			);
+		}
+	};
 
 	const isOwnedEditorFactory = (factory: EditorFactory | undefined) =>
 		(factory as ZentuiEditorFactory | undefined)?.[ZENTUI_EDITOR_OWNER] === editorOwnerToken;
@@ -265,6 +285,14 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender?.();
 		requestEditorRender?.();
 	};
+	const thinkingExperimental = new ThinkingExperimentalController(
+		() => currentConfig.components.thinkingSteps,
+	);
+	const thinkingStepsCapability = {
+		get state() {
+			return thinkingExperimental.state;
+		},
+	};
 	const liveContext = new LiveContextController(sessionLifecycle, refresh);
 	const getActiveTheme = () => activeTheme;
 	const getCurrentConfig = () => currentConfig;
@@ -278,15 +306,25 @@ export default function (pi: ExtensionAPI) {
 		Date.now,
 		() => interactionMetrics.currentThought(),
 	);
+	const getContextSnapshot = (ctx: ExtensionContext) => resolveContextUsage(ctx, liveContext.get());
 	const getContextWindow = (ctx: ExtensionContext): number | undefined =>
-		ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow;
-	const getContextPercent = (ctx: ExtensionContext): number | undefined => {
-		const usage = ctx.getContextUsage();
-		const contextWindow = getContextWindow(ctx);
-		const live = liveContext.get();
-		return live && contextWindow && contextWindow > 0
-			? (live.tokens / contextWindow) * 100
-			: (usage?.percent ?? undefined);
+		getContextSnapshot(ctx).contextWindow;
+	const getContextPercent = (ctx: ExtensionContext): number | undefined =>
+		getContextSnapshot(ctx).percent;
+	const getEditorMeta = (ctx: ExtensionContext) => {
+		const context = getContextSnapshot(ctx);
+		return {
+			modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+			modelId: state.modelId,
+			modelName: state.modelName,
+			providerLabel: state.providerLabel,
+			sessionName: ctx.sessionManager.getSessionName() ?? "",
+			contextPercent: context.percent,
+			contextWindow: context.contextWindow,
+			inputTokens: state.usageTotals.input,
+			outputTokens: state.usageTotals.output,
+			cacheHitRate: state.usageTotals.latestCacheHitRate,
+		};
 	};
 	const getAgentDurationMs = () => agentDurationClock.elapsedMs();
 	const getThinkingLevel = () =>
@@ -304,12 +342,22 @@ export default function (pi: ExtensionAPI) {
 			? activeFooterReferences(currentConfig)
 			: new Set<string>();
 
-	type ProjectRefreshTarget = { cwd: string; generation: number };
+	type ProjectRefreshTarget = {
+		repository: RepositoryRootRequest;
+		sessionGeneration: number;
+	};
 	const refreshProjectState = async (
-		{ cwd, generation }: ProjectRefreshTarget,
+		{ repository, sessionGeneration }: ProjectRefreshTarget,
 		run: ProjectRefreshRun,
 	) => {
-		if (!run.isCurrent() || !sessionLifecycle.isCurrent(generation)) return;
+		const { cwd } = repository;
+		if (
+			!run.isCurrent() ||
+			!sessionLifecycle.isCurrent(sessionGeneration) ||
+			!repositoryRoots.isCurrent(repository)
+		) {
+			return;
+		}
 		const starship = currentConfig.components.footer.styles.starship;
 		const gitCommitConfig = starship.gitCommit;
 		const gitMetricsConfig = starship.gitMetrics;
@@ -335,12 +383,12 @@ export default function (pi: ExtensionAPI) {
 		]);
 		if (
 			!run.isCurrent() ||
-			!sessionLifecycle.isCurrent(generation) ||
-			requestedProjectCwd !== cwd
+			!sessionLifecycle.isCurrent(sessionGeneration) ||
+			!repositoryRoots.isCurrent(repository)
 		) {
 			return;
 		}
-		minimalistProjectRoot = git.kind === "ok" ? findRepositoryRoot(cwd) : undefined;
+		minimalistProjectRoot = repositoryRoots.update(repository, git.kind === "ok");
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd,
 			previousCwd: lastProjectCwd,
@@ -355,11 +403,11 @@ export default function (pi: ExtensionAPI) {
 		ctx: ExtensionContext,
 		options?: ScheduleProjectRefreshOptions,
 	) => {
-		const generation = sessionLifecycle.currentGeneration();
-		if (!sessionLifecycle.isCurrent(generation)) return;
-		const cwd = ctx.cwd;
-		requestedProjectCwd = cwd;
-		projectRefreshScheduler.schedule({ cwd, generation }, options);
+		const sessionGeneration = sessionLifecycle.currentGeneration();
+		if (!sessionLifecycle.isCurrent(sessionGeneration)) return;
+		const repository = repositoryRoots.request(ctx.cwd);
+		minimalistProjectRoot = repositoryRoots.cachedRootForCwd(ctx.cwd);
+		projectRefreshScheduler.schedule({ repository, sessionGeneration }, options);
 	};
 
 	const minimalistProjectRequired = () => {
@@ -608,8 +656,13 @@ export default function (pi: ExtensionAPI) {
 		} else uninstallSelectorBorders();
 	};
 
+	let cleanupSakuraVisuals: () => void = () => {};
+	let sakuraVisualsInstalled = false;
 	const installSakuraVisuals = () => {
 		if (sakuraVisualsInstalled) return;
+		// ponytail: upstream tests assert a native updateContent when Thinking (Experimental)
+		// is disabled; only install transcript patches when Sakura visuals are active.
+		if (!isSakuraVisualEnabled()) return;
 		let cleanupTools: (() => void) | undefined;
 		try {
 			cleanupTools = installToolExecutionStyle(getActiveTheme, isSakuraVisualEnabled);
@@ -682,41 +735,48 @@ export default function (pi: ExtensionAPI) {
 		return observed;
 	};
 
+	const accentRailLayoutActive = () =>
+		sessionLifecycle.isCurrent() &&
+		ownsInstalledEditorFactory() &&
+		effectiveEditorEnabled() &&
+		currentConfig.components.editor.style === "accent-rail";
+
+	const markOwnedAccentRailEditor = <T extends object>(editor: T): T => {
+		markAccentRailLayoutEditor(editor, editorOwnerToken, accentRailLayoutActive);
+		return editor;
+	};
+
 	const makeEditorFactory = (ctx: ExtensionContext): ZentuiEditorFactory => {
 		const sessionTheme = ctx.ui.theme;
 		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
 			requestEditorRender = () => tui.requestRender();
-			return new PolishedEditor(
-				tui,
-				theme,
-				keybindings,
-				sessionTheme,
-				getCurrentConfig,
-				() => ({
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					modelId: state.modelId,
-					modelName: state.modelName,
-					providerLabel: state.providerLabel,
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-				}),
-				getThinkingLevel,
-				() => ({
-					cwd: ctx.cwd,
-					projectRoot: minimalistProjectRoot,
-					branch: state.branch,
-					dirty: state.dirty,
-					ahead: state.ahead,
-					behind: state.behind,
-					costLabel: state.costLabel,
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					thinkingLevel: getThinkingLevel(),
-					contextPercent: getContextPercent(ctx),
-					contextWindow: getContextWindow(ctx),
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-					agentDurationMs: getAgentDurationMs(),
-					agentActive: agentRunActive,
-				}),
-				setMinimalistDecorationActive,
+			return markOwnedAccentRailEditor(
+				new PolishedEditor(
+					tui,
+					theme,
+					keybindings,
+					sessionTheme,
+					getCurrentConfig,
+					() => getEditorMeta(ctx),
+					getThinkingLevel,
+					() => ({
+						cwd: ctx.cwd,
+						projectRoot: minimalistProjectRoot,
+						branch: state.branch,
+						dirty: state.dirty,
+						ahead: state.ahead,
+						behind: state.behind,
+						costLabel: state.costLabel,
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						thinkingLevel: getThinkingLevel(),
+						contextPercent: getContextPercent(ctx),
+						contextWindow: getContextWindow(ctx),
+						sessionName: ctx.sessionManager.getSessionName() ?? "",
+						agentDurationMs: getAgentDurationMs(),
+						agentActive: agentRunActive,
+					}),
+					setMinimalistDecorationActive,
+				),
 			);
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
@@ -731,35 +791,31 @@ export default function (pi: ExtensionAPI) {
 		const sessionTheme = ctx.ui.theme;
 		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
 			requestEditorRender = () => tui.requestRender();
-			return new WrappedPolishedEditor(
-				baseFactory(tui, theme, keybindings),
-				sessionTheme,
-				getCurrentConfig,
-				() => ({
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					modelId: state.modelId,
-					modelName: state.modelName,
-					providerLabel: state.providerLabel,
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-				}),
-				getThinkingLevel,
-				() => ({
-					cwd: ctx.cwd,
-					projectRoot: minimalistProjectRoot,
-					branch: state.branch,
-					dirty: state.dirty,
-					ahead: state.ahead,
-					behind: state.behind,
-					costLabel: state.costLabel,
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					thinkingLevel: getThinkingLevel(),
-					contextPercent: getContextPercent(ctx),
-					contextWindow: getContextWindow(ctx),
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-					agentDurationMs: getAgentDurationMs(),
-					agentActive: agentRunActive,
-				}),
-				setMinimalistDecorationActive,
+			return markOwnedAccentRailEditor(
+				new WrappedPolishedEditor(
+					baseFactory(tui, theme, keybindings),
+					sessionTheme,
+					getCurrentConfig,
+					() => getEditorMeta(ctx),
+					getThinkingLevel,
+					() => ({
+						cwd: ctx.cwd,
+						projectRoot: minimalistProjectRoot,
+						branch: state.branch,
+						dirty: state.dirty,
+						ahead: state.ahead,
+						behind: state.behind,
+						costLabel: state.costLabel,
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						thinkingLevel: getThinkingLevel(),
+						contextPercent: getContextPercent(ctx),
+						contextWindow: getContextWindow(ctx),
+						sessionName: ctx.sessionManager.getSessionName() ?? "",
+						agentDurationMs: getAgentDurationMs(),
+						agentActive: agentRunActive,
+					}),
+					setMinimalistDecorationActive,
+				),
 			);
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
@@ -909,6 +965,7 @@ export default function (pi: ExtensionAPI) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
 				getLiveContext: () => liveContext.get(),
+				getRepositoryRoot: (cwd) => repositoryRoots.rootForCwd(cwd),
 				onDispose: () => clearFooterOwnership(ctx, token),
 			});
 			installedFooterKind = "starship";
@@ -1027,7 +1084,6 @@ export default function (pi: ExtensionAPI) {
 		const staleFooterOwner = ctxFooterOwner(ctx);
 		if (typeof staleFooterOwner === "symbol") installedFooterToken = staleFooterOwner;
 		ensureConfigExists();
-		currentConfig = loadConfig();
 		syncFooterState(ctx);
 		stopProjectRefresh();
 
@@ -1113,6 +1169,9 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (!retainedEditorOwnership) clearEditorOwnership();
+		accentRailLayoutPatchInstallSerial += 1;
+		cleanupAccentRailLayoutPatch();
+		cleanupAccentRailLayoutPatch = () => {};
 		uninstallUserMessages();
 		uninstallSelectorBorders();
 		uninstallSakuraVisuals();
@@ -1133,15 +1192,39 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		sessionLifecycle.start();
+		const lifecycleGeneration = sessionLifecycle.start();
+		// Reload synchronously so private ownership uses this session's disk snapshot before
+		// any await or transcript restoration.
+		currentConfig = loadConfig();
+		thinkingExperimental.startSession(ctx);
+		const layoutInstallSerial = ++accentRailLayoutPatchInstallSerial;
+		cleanupAccentRailLayoutPatch();
+		cleanupAccentRailLayoutPatch = () => {};
+		if (isTuiContext(ctx)) {
+			const layoutPatchRetention = await retainAccentRailLayoutPatchInstallation(
+				() => installHostAccentRailLayoutPatch(editorOwnerToken),
+				() =>
+					sessionLifecycle.isCurrent(lifecycleGeneration) &&
+					layoutInstallSerial === accentRailLayoutPatchInstallSerial,
+				(layoutPatch) => {
+					cleanupAccentRailLayoutPatch = layoutPatch.cleanup;
+					recordAccentRailLayoutPatchDiagnostic(layoutPatch.diagnostic, layoutPatch.version);
+				},
+			);
+			if (layoutPatchRetention === "stale") return;
+			if (layoutPatchRetention === "failed") {
+				recordAccentRailLayoutPatchDiagnostic("host-module-unavailable");
+			}
+		}
+		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		state.sessionStartEpoch = Date.now();
 		invalidateUsageTotalsCache();
 		resetAgentTimer();
 		lastProjectCwd = undefined;
-		requestedProjectCwd = undefined;
 		minimalistProjectRoot = undefined;
+		repositoryRoots.reset();
 		installUi(ctx);
 		workingLine.startSession(ctx);
 		scheduleEditorReconciliation(ctx);
@@ -1168,6 +1251,21 @@ export default function (pi: ExtensionAPI) {
 				reason: result && !result.ok ? result.reason : undefined,
 			};
 		},
+		setPolished(patch: Partial<PolishedEditorStyleConfig>, _ctx: ExtensionContext) {
+			currentConfig = savePolishedEditorStylePatch(patch);
+			refresh();
+		},
+		setPolishedCopyFriendly(
+			patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
+			_ctx: ExtensionContext,
+		) {
+			currentConfig = savePolishedCopyFriendlyEditorStylePatch(patch);
+			refresh();
+		},
+		setAccentRail(patch: Partial<AccentRailEditorStyleConfig>, _ctx: ExtensionContext) {
+			currentConfig = saveAccentRailEditorStylePatch(patch);
+			refresh();
+		},
 		setMinimalist(patch: Partial<MinimalistConfig>, ctx: ExtensionContext) {
 			currentConfig = saveMinimalistEditorStylePatch(patch);
 			reconcileAgentTimer();
@@ -1178,6 +1276,14 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveUserMessagesComponentPatch(patch);
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
+		},
+		thinkingStepsCapability,
+		setThinkingStepsComponent(
+			patch: Partial<ThinkingStepsComponentConfig>,
+			_ctx: ExtensionContext,
+		) {
+			currentConfig = saveThinkingStepsComponentPatch(patch);
+			return thinkingExperimental.reconcile();
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
 			currentConfig = saveWorkingLineComponentPatch(patch);
@@ -1266,6 +1372,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		workingLine.dispose(ctx);
@@ -1276,6 +1383,8 @@ export default function (pi: ExtensionAPI) {
 		invalidateUsageTotalsCache();
 		refreshInteractiveState(ctx, true);
 	};
+
+	pi.on("message_start", (event) => thinkingExperimental.beginMessage(event));
 
 	pi.on("agent_start", (event, ctx) => {
 		liveContext.clear();
@@ -1289,6 +1398,7 @@ export default function (pi: ExtensionAPI) {
 		workingLine.startTurn(ctx);
 	});
 	pi.on("agent_end", (event, ctx) => {
+		thinkingExperimental.endAgent();
 		liveContext.clear();
 		const displayTokens = interactionMetrics.currentDisplayTokens();
 		interactionMetrics.agentEnd();
@@ -1305,6 +1415,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("thinking_level_select", syncInteractiveState);
 	pi.on("session_info_changed", syncInteractiveState);
 	pi.on("message_update", (event, ctx) => {
+		thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
 		const metrics = interactionMetrics.messageUpdate(
 			event.message,
@@ -1315,6 +1426,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 	pi.on("message_end", (event, ctx) => {
+		thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
 		if (result.status === "accepted") {
 			workingLine.updateMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);

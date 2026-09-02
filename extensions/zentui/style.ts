@@ -147,6 +147,7 @@ const themeColorTokens = new Set<ThemeColor>([
 	"thinkingMedium",
 	"thinkingHigh",
 	"thinkingXhigh",
+	"thinkingMax",
 	"bashMode",
 ]);
 

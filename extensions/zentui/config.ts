@@ -35,7 +35,7 @@ export type { IconMode } from "./icons";
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
-export type EditorStyle = "opencode" | "opencode-copy-friendly" | "minimalist";
+export type EditorStyle = "opencode" | "opencode-copy-friendly" | "accent-rail" | "minimalist";
 export type UserMessageStyle = "framed" | "framed-copy-friendly" | "compact" | "labeled";
 export type SelectorBorderStyle = "zentui";
 export type FooterStyle = "native" | "starship" | "hidden";
@@ -46,10 +46,12 @@ export type WorkingLineSpinner =
 	| "claude-inspired"
 	| "pulse";
 export type WorkingLineTextAnimation = "classic" | "kitt" | "disabled";
+export type ThinkingStepsMode = "rail" | "tree" | "streaming";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
 export type EditorBorderColorMode = "static" | "adaptive";
+export type CompletionMenuStyle = "native" | "palette";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
 
 export const DEFAULT_COMPACT_FOOTER_FORMAT =
@@ -60,11 +62,11 @@ export type ContextThresholds = {
 	error: number;
 };
 
-export type PathDisplayMode = "basename" | "full";
+export type PathDisplayMode = "basename" | "full" | "repository";
 
 export type PathDisplayConfig = {
 	mode: PathDisplayMode;
-	/** Trailing directories to show in full mode. 0 = unlimited; clamped to 0..5. */
+	/** Final components to show in full/repository mode. 0 = unlimited; clamped to 0..5. */
 	depth: number;
 };
 
@@ -108,10 +110,18 @@ export type FooterSegmentsConfig = {
 
 export type PolishedEditorStyleConfig = {
 	metadataFormat: string;
+	completionMenu: CompletionMenuStyle;
 };
 
 export type PolishedCopyFriendlyEditorStyleConfig = {
 	metadataFormat: string;
+	completionMenu: CompletionMenuStyle;
+};
+
+export type AccentRailEditorStyleConfig = {
+	rail: string;
+	asciiRail: string;
+	transparent: boolean;
 };
 
 export type MinimalistEditorStyleConfig = {
@@ -142,6 +152,7 @@ export type EditorComponentConfig = {
 	styles: {
 		opencode: PolishedEditorStyleConfig;
 		"opencode-copy-friendly": PolishedCopyFriendlyEditorStyleConfig;
+		"accent-rail": AccentRailEditorStyleConfig;
 		minimalist: MinimalistEditorStyleConfig;
 	};
 };
@@ -240,9 +251,15 @@ export type WorkingLineComponentPatch = Partial<
 	segments?: Partial<WorkingLineSegmentsConfig>;
 };
 
+export type ThinkingStepsComponentConfig = {
+	enabled: boolean;
+	mode: ThinkingStepsMode;
+};
+
 export type ComponentsConfig = {
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
+	thinkingSteps: ThinkingStepsComponentConfig;
 	workingLine: WorkingLineComponentConfig;
 	selectorBorders: SelectorBordersComponentConfig;
 	footer: FooterComponentConfig;
@@ -312,8 +329,10 @@ export type PolishedTuiColors = {
 	time: ColorSpec;
 	os: ColorSpec;
 	editorAccent?: ColorSpec;
+	editorRail?: ColorSpec;
 	editorPrompt?: ColorSpec;
 	editorBorder?: ColorSpec;
+	editorGitBranch?: ColorSpec;
 	editorModel?: ColorSpec;
 	editorProvider?: ColorSpec;
 	editorThinking?: ColorSpec;
@@ -322,6 +341,7 @@ export type PolishedTuiColors = {
 	editorThinkingMedium?: ColorSpec;
 	editorThinkingHigh?: ColorSpec;
 	editorThinkingXhigh?: ColorSpec;
+	editorThinkingMax?: ColorSpec;
 	workingLineLow?: ColorSpec;
 	workingLineMid?: ColorSpec;
 	workingLineHigh?: ColorSpec;
@@ -425,6 +445,14 @@ const defaultFooterSegments: FooterSegmentsConfig = {
 	packageVersion: false,
 };
 
+const DEFAULT_COMPLETION_MENU: CompletionMenuStyle = "palette";
+
+const defaultAccentRailStyle: AccentRailEditorStyleConfig = {
+	rail: "▎",
+	asciiRail: "|",
+	transparent: false,
+};
+
 const defaultMinimalistStyle: MinimalistEditorStyleConfig = {
 	pathDisplay: "compact",
 	contextFormat: "percent",
@@ -461,8 +489,15 @@ const defaultComponents: ComponentsConfig = {
 		modelLabel: "id",
 		viewportIndicators: true,
 		styles: {
-			opencode: { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
-			"opencode-copy-friendly": { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
+			opencode: {
+				metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+				completionMenu: DEFAULT_COMPLETION_MENU,
+			},
+			"opencode-copy-friendly": {
+				metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+				completionMenu: DEFAULT_COMPLETION_MENU,
+			},
+			"accent-rail": defaultAccentRailStyle,
 			minimalist: defaultMinimalistStyle,
 		},
 	},
@@ -472,6 +507,7 @@ const defaultComponents: ComponentsConfig = {
 		colorSource: "theme",
 		styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 	},
+	thinkingSteps: { enabled: false, mode: "tree" },
 	workingLine: {
 		enabled: false,
 		turnSummary: true,
@@ -580,7 +616,12 @@ function parseEditorModelLabel(
 }
 
 function parseEditorStyle(value: unknown): EditorStyle {
-	if (value === "opencode" || value === "opencode-copy-friendly" || value === "minimalist") {
+	if (
+		value === "opencode" ||
+		value === "opencode-copy-friendly" ||
+		value === "accent-rail" ||
+		value === "minimalist"
+	) {
 		return value;
 	}
 	if (value === "polished") return "opencode";
@@ -591,6 +632,10 @@ function parseEditorStyle(value: unknown): EditorStyle {
 function parseEditorBorderColorMode(value: unknown): EditorBorderColorMode {
 	if (value === "static" || value === "adaptive") return value;
 	return defaultConfig.editorBorderColorMode;
+}
+
+function parseCompletionMenuStyle(value: unknown): CompletionMenuStyle {
+	return value === "native" || value === "palette" ? value : DEFAULT_COMPLETION_MENU;
 }
 
 export function isSeparatorStyle(value: unknown): value is SeparatorStyle {
@@ -628,7 +673,10 @@ function parseContextThresholds(
 function parsePathDisplay(value: unknown): PathDisplayConfig {
 	const defaults = defaultConfig.pathDisplay;
 	if (!isRecord(value)) return { ...defaults };
-	const mode = value.mode === "full" || value.mode === "basename" ? value.mode : defaults.mode;
+	const mode =
+		value.mode === "full" || value.mode === "basename" || value.mode === "repository"
+			? value.mode
+			: defaults.mode;
 	const rawDepth = value.depth;
 	const depth =
 		typeof rawDepth === "number" && Number.isFinite(rawDepth) && rawDepth >= 0
@@ -707,8 +755,10 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		time: colorValue(record, "time"),
 		os: colorValue(record, "os"),
 		editorAccent: colorValue(record, "editorAccent"),
+		editorRail: colorValue(record, "editorRail"),
 		editorPrompt: colorValue(record, "editorPrompt"),
 		editorBorder: colorValue(record, "editorBorder"),
+		editorGitBranch: colorValue(record, "editorGitBranch"),
 		editorModel: colorValue(record, "editorModel"),
 		editorProvider: colorValue(record, "editorProvider"),
 		editorThinking: colorValue(record, "editorThinking"),
@@ -717,6 +767,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		editorThinkingMedium: colorValue(record, "editorThinkingMedium"),
 		editorThinkingHigh: colorValue(record, "editorThinkingHigh"),
 		editorThinkingXhigh: colorValue(record, "editorThinkingXhigh"),
+		editorThinkingMax: colorValue(record, "editorThinkingMax"),
 		workingLineLow: colorValue(record, "workingLineLow"),
 		workingLineMid: colorValue(record, "workingLineMid"),
 		workingLineHigh: colorValue(record, "workingLineHigh"),
@@ -1061,6 +1112,7 @@ function resolveEditorStyle(
 	if (
 		rawStyle === "opencode" ||
 		rawStyle === "opencode-copy-friendly" ||
+		rawStyle === "accent-rail" ||
 		rawStyle === "minimalist"
 	) {
 		return rawStyle;
@@ -1142,10 +1194,12 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const polished = recordValue(editorStyles.polished);
 	const opencodeCopyFriendly = recordValue(editorStyles["opencode-copy-friendly"]);
 	const polishedCopyFriendly = recordValue(editorStyles["polished-copy-friendly"]);
+	const accentRail = recordValue(editorStyles["accent-rail"]);
 	const minimalist = recordValue(editorStyles.minimalist);
 	const userMessages = recordValue(components.userMessages);
 	const userMessageStyles = recordValue(userMessages.styles);
 	const framed = recordValue(userMessageStyles.framed);
+	const thinkingSteps = recordValue(components.thinkingSteps);
 	const workingLine = recordValue(components.workingLine);
 	const workingLineMessages = recordValue(workingLine.messages);
 	const workingLineSegments = recordValue(workingLine.segments);
@@ -1202,12 +1256,19 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			styles: {
 				opencode: {
 					metadataFormat: parseNonEmptyString(metadataFormat, DEFAULT_EDITOR_METADATA_FORMAT),
+					completionMenu: parseCompletionMenuStyle(opencode.completionMenu),
 				},
 				"opencode-copy-friendly": {
 					metadataFormat: parseNonEmptyString(
 						lowRailMetadataFormat,
 						DEFAULT_EDITOR_METADATA_FORMAT,
 					),
+					completionMenu: parseCompletionMenuStyle(opencodeCopyFriendly.completionMenu),
+				},
+				"accent-rail": {
+					rail: parseNonEmptyString(accentRail.rail, defaultAccentRailStyle.rail),
+					asciiRail: parseNonEmptyString(accentRail.asciiRail, defaultAccentRailStyle.asciiRail),
+					transparent: parseBoolean(accentRail.transparent, defaultAccentRailStyle.transparent),
 				},
 				minimalist: {
 					pathDisplay:
@@ -1245,6 +1306,15 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				compact: {},
 				labeled: {},
 			},
+		},
+		thinkingSteps: {
+			enabled: parseBoolean(thinkingSteps.enabled, defaultComponents.thinkingSteps.enabled),
+			mode:
+				thinkingSteps.mode === "rail" || thinkingSteps.mode === "tree"
+					? thinkingSteps.mode
+					: thinkingSteps.mode === "streaming" || thinkingSteps.mode === "streaming-experimental"
+						? "streaming"
+						: defaultComponents.thinkingSteps.mode,
 		},
 		workingLine: {
 			enabled: parseBoolean(workingLine.enabled, defaultComponents.workingLine.enabled),
@@ -1393,6 +1463,7 @@ const knownComponentStyleIds: Record<ComponentStyleOwner, ReadonlySet<string>> =
 	editor: new Set([
 		"opencode",
 		"opencode-copy-friendly",
+		"accent-rail",
 		"minimalist",
 		"polished",
 		"polished-copy-friendly",
@@ -1425,13 +1496,20 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
 	const iconsRecord = recordValue(config.icons);
 	const colorsRecord = recordValue(config.colors);
+	const colors = normalizeColors(colorsRecord);
 	const canonical: ZentuiConfig = {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		icons: resolveConfiguredIcons(
 			normalizeIconMode(iconsRecord.mode),
 			normalizeIconOverrides(iconsRecord),
 		),
-		colors: { ...defaultConfig.colors, ...normalizeColors(colorsRecord) },
+		colors: {
+			...defaultConfig.colors,
+			...colors,
+			...(colors.editorGitBranch === undefined && colors.gitBranch !== undefined
+				? { editorGitBranch: colors.gitBranch }
+				: {}),
+		},
 		components: resolveComponents(config),
 	};
 	const view = compatibilityView(canonical);
@@ -1607,6 +1685,7 @@ export function savePolishedEditorStylePatch(
 	return saveComponentsMutation((components) => {
 		const style = components.editor.styles.opencode;
 		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
+		if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
 	}, path);
 }
 
@@ -1617,6 +1696,19 @@ export function savePolishedCopyFriendlyEditorStylePatch(
 	return saveComponentsMutation((components) => {
 		const style = components.editor.styles["opencode-copy-friendly"];
 		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
+		if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
+	}, path);
+}
+
+export function saveAccentRailEditorStylePatch(
+	patch: Partial<AccentRailEditorStyleConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation((components) => {
+		const style = components.editor.styles["accent-rail"];
+		if (patch.rail !== undefined) style.rail = patch.rail;
+		if (patch.asciiRail !== undefined) style.asciiRail = patch.asciiRail;
+		if (patch.transparent !== undefined) style.transparent = patch.transparent;
 	}, path);
 }
 
@@ -1661,6 +1753,17 @@ export function saveUserMessagesComponentPatch(
 		patch.style !== undefined ? deleteLegacyMessageCopyFriendly : undefined,
 		patch.style !== undefined ? "userMessages" : undefined,
 	);
+}
+
+export function saveThinkingStepsComponentPatch(
+	patch: Partial<ThinkingStepsComponentConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation((components) => {
+		const component = components.thinkingSteps;
+		if (patch.enabled !== undefined) component.enabled = patch.enabled;
+		if (patch.mode !== undefined) component.mode = patch.mode;
+	}, path);
 }
 
 export function saveWorkingLineComponentPatch(

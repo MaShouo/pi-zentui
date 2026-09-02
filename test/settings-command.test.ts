@@ -8,6 +8,8 @@ import {
 	type FooterComponentConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
+	type ThinkingStepsComponentConfig,
+	type ThinkingStepsMode,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 } from "../extensions/zentui/config";
@@ -23,6 +25,7 @@ const sectionNames = [
 	"Appearance",
 	"Editor",
 	"User messages",
+	"Thinking",
 	"Working line",
 	"Footer",
 	"Segments",
@@ -104,16 +107,22 @@ function createHarness(
 	let command: Command | undefined;
 	let component: Component | undefined;
 	const notifications: string[] = [];
+	const notificationEvents: Array<{ message: string; severity: string }> = [];
 	let doneCalls = 0;
 	const sessionLifecycle = new SessionLifecycle();
 	const calls = {
 		editor: [] as Partial<EditorComponentConfig>[],
+		polished: [] as Array<Record<string, unknown>>,
+		polishedCopyFriendly: [] as Array<Record<string, unknown>>,
+		accentRail: [] as Array<Record<string, unknown>>,
 		messages: [] as Partial<UserMessagesComponentConfig>[],
+		thinkingSteps: [] as Partial<ThinkingStepsComponentConfig>[],
 		workingLine: [] as WorkingLineComponentPatch[],
 		renders: { shared: 0, local: 0 },
 		selectors: [] as Partial<SelectorBordersComponentConfig>[],
 		footer: [] as Partial<FooterComponentConfig>[],
 		minimalist: [] as Array<Record<string, unknown>>,
+		pathDisplay: [] as Array<Record<string, unknown>>,
 		segments: [] as Array<Record<string, boolean>>,
 		gitCommit: [] as Array<Record<string, boolean>>,
 		gitMetrics: [] as Array<Record<string, boolean>>,
@@ -128,6 +137,18 @@ function createHarness(
 			Object.assign(config.components.editor, patch);
 			return { applied: true };
 		},
+		setPolished(patch: Record<string, unknown>) {
+			calls.polished.push(patch);
+			Object.assign(config.components.editor.styles.opencode, patch);
+		},
+		setPolishedCopyFriendly(patch: Record<string, unknown>) {
+			calls.polishedCopyFriendly.push(patch);
+			Object.assign(config.components.editor.styles["opencode-copy-friendly"], patch);
+		},
+		setAccentRail(patch: Record<string, unknown>) {
+			calls.accentRail.push(patch);
+			Object.assign(config.components.editor.styles["accent-rail"], patch);
+		},
 		setMinimalist(patch: Record<string, unknown>) {
 			calls.minimalist.push(patch);
 			Object.assign(config.components.editor.styles.minimalist, patch);
@@ -135,6 +156,12 @@ function createHarness(
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>) {
 			calls.messages.push(patch);
 			Object.assign(config.components.userMessages, patch);
+		},
+		thinkingStepsCapability: { available: true },
+		setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+			calls.thinkingSteps.push(patch);
+			Object.assign(config.components.thinkingSteps, patch);
+			return { applied: true };
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch) {
 			calls.workingLine.push(patch);
@@ -161,7 +188,10 @@ function createHarness(
 		setIconMode() {},
 		setContextStyle() {},
 		setSeparator() {},
-		setPathDisplay() {},
+		setPathDisplay(patch: Record<string, unknown>) {
+			calls.pathDisplay.push(patch);
+			Object.assign(config.components.footer.styles.starship.pathDisplay, patch);
+		},
 		setGitBranch() {},
 		setGitCommit(patch: Record<string, boolean>) {
 			calls.gitCommit.push(patch);
@@ -204,8 +234,9 @@ function createHarness(
 		cwd: process.cwd(),
 		ui: {
 			theme: theme(),
-			notify(message: string) {
+			notify(message: string, severity = "info") {
 				notifications.push(message);
+				notificationEvents.push({ message, severity });
 			},
 			async custom(factory: (...args: unknown[]) => unknown) {
 				component = factory(
@@ -240,6 +271,7 @@ function createHarness(
 		ctx,
 		calls,
 		notifications,
+		notificationEvents,
 		sessionLifecycle,
 		doneCalls: () => doneCalls,
 	};
@@ -250,7 +282,7 @@ afterEach(() => {
 });
 
 describe("component-oriented /zentui settings", () => {
-	it("uses the exact eight-section order in wide and narrow navigation", async () => {
+	it("uses the exact nine-section order in wide and narrow navigation", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
@@ -264,7 +296,7 @@ describe("component-oriented /zentui settings", () => {
 		for (const [index, name] of sectionNames.entries()) {
 			const lines = component.render(40);
 			expect(lines[1]).toContain(name);
-			expect(lines[1]).toContain(`(${index + 1}/8)`);
+			expect(lines[1]).toContain(`(${index + 1}/9)`);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			component.handleInput("\t");
 		}
@@ -302,10 +334,13 @@ describe("component-oriented /zentui settings", () => {
 			"Editor model label",
 			"Editor border color",
 			"Editor viewport indicators",
+			"Completion menu",
 		]);
 
 		component.handleInput("\t");
 		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
+		component.handleInput("\t");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
 			"Enabled",
@@ -319,7 +354,7 @@ describe("component-oriented /zentui settings", () => {
 			"Custom messages",
 			"Tool",
 			"Elapsed",
-			"Thinking",
+			"Thinking time",
 			"Tokens",
 			"Message list",
 		]);
@@ -496,7 +531,7 @@ describe("component-oriented /zentui settings", () => {
 			{ showGit: false },
 		]);
 
-		for (let index = 0; index < 5; index += 1) component.handleInput("\t");
+		for (let index = 0; index < 6; index += 1) component.handleInput("\t");
 		for (const [label, value] of [
 			["Commit only on detached HEAD", "disabled"],
 			["Show exact-match tag", "disabled"],
@@ -531,11 +566,66 @@ describe("component-oriented /zentui settings", () => {
 		expect(focusedRow(component)).toContain("Opencode (copy-friendly)");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor style");
+		expect(focusedRow(component)).toContain("Accent Rail");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Editor style");
 		expect(focusedRow(component)).toContain("Minimalist");
 		expect(harness.calls.editor).toEqual([
 			{ style: "opencode-copy-friendly" },
+			{ style: "accent-rail" },
 			{ style: "minimalist" },
 		]);
+	});
+
+	it("configures Opencode completion menus independently", async () => {
+		const current = cloneConfig();
+		const harness = createHarness(current);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Completion menu");
+		expect(focusedRow(component)).toContain("palette");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("native");
+		expect(harness.calls.polished).toEqual([{ completionMenu: "native" }]);
+		expect(harness.calls.polishedCopyFriendly).toEqual([]);
+
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		selectLabel(component, "Completion menu");
+		expect(focusedRow(component)).toContain("palette");
+		component.handleInput(" ");
+		expect(harness.calls.polishedCopyFriendly).toEqual([{ completionMenu: "native" }]);
+		expect(current.components.editor.styles.opencode.completionMenu).toBe("native");
+		expect(current.components.editor.styles["opencode-copy-friendly"].completionMenu).toBe(
+			"native",
+		);
+
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		expect(component.render(100).join("\n")).not.toContain("Completion menu");
+	});
+
+	it("shows and persists the Accent Rail surface control only for that style", async () => {
+		const current = cloneConfig();
+		current.components.editor.style = "accent-rail";
+		const harness = createHarness(current);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Accent Rail surface");
+		expect(focusedRow(component)).toContain("filled");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("transparent");
+		expect(harness.calls.accentRail).toEqual([{ transparent: true }]);
+		expect(harness.calls.editor).toEqual([]);
+		expect(current.components.editor.styles.minimalist).toEqual(
+			defaultConfig.components.editor.styles.minimalist,
+		);
+
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		expect(component.render(80).join("\n")).not.toContain("Accent Rail surface");
 	});
 
 	it("shows friendly message style labels and restores focus after rebuild", async () => {
@@ -560,6 +650,25 @@ describe("component-oriented /zentui settings", () => {
 		]);
 	});
 
+	it("offers and routes repository Footer paths with clarified depth semantics", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Footer");
+		selectLabel(component, "Path display");
+		expect(focusedRow(component)).toContain("basename");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("repository");
+		expect(component.render(160).join("\n")).toContain("repository-relative");
+		selectLabel(component, "Path depth");
+		const depthRows = component.render(160).join("\n");
+		expect(depthRows).toContain("Final component count for Full and Repository");
+		expect(depthRows).toContain("0 = unlimited");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("1");
+		expect(harness.calls.pathDisplay).toEqual([{ mode: "repository" }, { depth: 1 }]);
+	});
+
 	it("routes color and model rows to separate component dependencies", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
@@ -577,6 +686,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		selectLabel(component, "Message colors");
 		component.handleInput(" ");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		selectLabel(component, "Footer colors");
@@ -662,6 +772,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Ignore submodules");
 		component.handleInput(" ");
 		component.handleInput("\x1b[Z");
@@ -675,6 +786,7 @@ describe("component-oriented /zentui settings", () => {
 		goToSection(component, "Editor");
 		expect(row(component, "Editor border color")).toContain("adaptive");
 		expect(row(component, "Editor model label")).toContain("name");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -711,6 +823,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Model info");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Model info");
@@ -721,6 +834,267 @@ describe("component-oriented /zentui settings", () => {
 			"Could not update Zentui settings: read-only editor",
 			"Could not update Zentui settings: read-only segments",
 		]);
+	});
+
+	it("shows Thinking (Experimental) with only Enabled and Mode focus rows", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		expect(component.render(120).join("\n")).toContain("Thinking (Experimental)");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
+		expect(component.render(120).join("\n")).toContain(
+			"Live switching supports Streaming → Rail/Tree and Rail ↔ Tree. Entering Streaming,",
+		);
+	});
+
+	it("shows saved and active mode mismatch honestly", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps.enabled = true;
+		config.components.thinkingSteps.mode = "streaming";
+		const harness = createHarness(config, {
+			thinkingStepsCapability: {
+				state: {
+					available: true,
+					rendererAvailable: true,
+					streamingAvailable: false,
+					active: true,
+					activeMode: "tree",
+					startup: { enabled: true, mode: "tree" },
+					displaced: false,
+					restartRequired: true,
+					reason: "Streaming listener unavailable; restart required",
+				},
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		const output = component.render(160).join("\n");
+		expect(output).toContain(
+			"Saved: Streaming · Active: Tree · Streaming unavailable · restart required · Streaming listener unavailable",
+		);
+		expect(output.match(/restart required/gi)).toHaveLength(2);
+		// One status appears in the preview and one in the focused setting description;
+		// neither duplicates reason text that already contained the phrase.
+	});
+
+	it("keeps private-renderer unavailability non-focusable and fails open to native", async () => {
+		const harness = createHarness(cloneConfig(), {
+			thinkingStepsCapability: { available: false },
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		const output = component.render(120).join("\n");
+		expect(output).toContain("Saved: Disabled · Active: Native · Renderer unavailable");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
+	});
+
+	it("routes Thinking-step enablement and mode independently", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
+		selectLabel(component, "Enabled");
+		component.handleInput(" ");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		expect(harness.calls.thinkingSteps).toEqual([{ enabled: true }, { mode: "rail" }]);
+		expect(harness.config.components.thinkingSteps).toEqual({
+			enabled: true,
+			mode: "rail",
+		});
+		expect(harness.notifications).toContain("Thinking (Experimental): Rail");
+	});
+
+	it("cycles the real mode setting through Streaming to Tree", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const harness = createHarness(config);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		expect(harness.calls.thinkingSteps).toEqual([{ mode: "tree" }]);
+		expect(harness.config.components.thinkingSteps.mode).toBe("tree");
+	});
+
+	it("rebuilds Thinking settings in focus with honest live-success status and preview", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const state = {
+			available: true,
+			active: true,
+			activeMode: "streaming" as ThinkingStepsMode,
+			startup: { enabled: true, mode: "streaming" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+		};
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				if (patch.mode) state.activeMode = patch.mode;
+				return { applied: true };
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		const output = component.render(160).join("\n");
+		expect(focusedRow(component)).toContain("> Mode");
+		expect(output).toContain("Saved: Tree · Active: Tree");
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: "Thinking (Experimental): Tree",
+			severity: "info",
+		});
+	});
+
+	it("rebuilds Thinking settings in focus with saved/active failure status and preview", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "rail" };
+		const state = {
+			available: true,
+			rendererAvailable: true,
+			streamingAvailable: true,
+			active: true,
+			activeMode: "rail" as ThinkingStepsMode,
+			startup: { enabled: true, mode: "tree" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+			reason: undefined as string | undefined,
+		};
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				state.restartRequired = true;
+				return {
+					applied: false,
+					reason: "Saved: Streaming · Active: Rail · restart required",
+				};
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		const output = component.render(180).join("\n");
+		expect(focusedRow(component)).toContain("> Mode");
+		const expectedStatus = "Saved: Streaming · Active: Rail · restart required";
+		expect(output).toContain(expectedStatus);
+		expect(output).toContain("Thinking 7.1s");
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: `Thinking (Experimental): Streaming (${expectedStatus})`,
+			severity: "warning",
+		});
+	});
+
+	it("includes a cleanup warning in a successful Thinking notification", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const state = {
+			available: true,
+			rendererAvailable: true,
+			streamingAvailable: true,
+			active: true,
+			activeMode: "streaming" as ThinkingStepsMode,
+			startup: { enabled: true, mode: "streaming" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+			reason: undefined as string | undefined,
+		};
+		const warning =
+			"Saved: Tree · Active: Tree · Streaming unavailable · Pi's terminal input listener cleanup is unavailable";
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				state.activeMode = "tree";
+				state.streamingAvailable = false;
+				state.reason = "Pi's terminal input listener cleanup is unavailable";
+				return { applied: true, reason: warning };
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		expect(component.render(180).join("\n")).toContain(warning);
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: `Thinking (Experimental): Tree (${warning})`,
+			severity: "warning",
+		});
+	});
+
+	it("shows a warning when disabling Streaming restores native output with degraded cleanup", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const state = {
+			available: true,
+			rendererAvailable: true,
+			streamingAvailable: true,
+			active: true,
+			activeMode: "streaming" as ThinkingStepsMode | undefined,
+			startup: { enabled: true, mode: "streaming" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+			reason: undefined as string | undefined,
+		};
+		const warning =
+			"Saved: Disabled · Active: Native · Streaming unavailable · Pi's terminal input listener cleanup is unavailable";
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				state.active = false;
+				state.activeMode = undefined;
+				state.streamingAvailable = false;
+				state.reason = "Pi's terminal input listener cleanup is unavailable";
+				return { applied: true, reason: warning };
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Enabled");
+		component.handleInput(" ");
+		expect(component.render(180).join("\n")).toContain(warning);
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: `Thinking (Experimental): disabled (${warning})`,
+			severity: "warning",
+		});
+	});
+
+	it("restores Thinking-step rows after persistence failure and exposes no direct route", async () => {
+		const harness = createHarness(cloneConfig(), {
+			setThinkingStepsComponent() {
+				throw new Error("read-only thinking");
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Enabled");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("disabled");
+		expect(harness.notifications).toContain("Could not update Zentui settings: read-only thinking");
+		await harness.command().handler("thinking-steps", harness.ctx);
+		expect(harness.notifications.at(-1)).toMatch(/^Usage:/);
+		expect(
+			harness
+				.command()
+				.getArgumentCompletions("")
+				?.map((item) => item.value)
+				.join("\n"),
+		).not.toMatch(/thinking.steps/i);
 	});
 
 	it("routes all Working-line rows independently", async () => {
@@ -739,7 +1113,7 @@ describe("component-oriented /zentui settings", () => {
 			"Custom messages",
 			"Tool",
 			"Elapsed",
-			"Thinking",
+			"Thinking time",
 			"Tokens",
 			"Message list",
 		]);
@@ -755,7 +1129,7 @@ describe("component-oriented /zentui settings", () => {
 			["Custom messages", "disabled"],
 			["Tool", "disabled"],
 			["Elapsed", "disabled"],
-			["Thinking", "disabled"],
+			["Thinking time", "disabled"],
 			["Tokens", "disabled"],
 		] as const) {
 			selectLabel(component, label);
@@ -1011,6 +1385,10 @@ describe("component-oriented /zentui settings", () => {
 		expect(component.render(100).join("\n")).not.toContain("↑ 2 more");
 		selectLabel(component, "Editor style");
 		component.handleInput(" ");
+		const accentRail = component.render(100).join("\n");
+		expect(accentRail).not.toBe(copyFriendly);
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
 		const minimalist = component.render(100).join("\n");
 		selectLabel(component, "Timer");
 		component.handleInput(" ");
@@ -1037,6 +1415,8 @@ describe("component-oriented /zentui settings", () => {
 			{ colorSource: "terminal" },
 		]);
 		expect(vi.getTimerCount()).toBe(0);
+		component.handleInput("\t");
+		expect(component.render(100).join("\n")).toContain("Thinking");
 		component.handleInput("\t");
 		const workingRows = component.render(100);
 		expectStackedPreview(workingRows, "Sautéing…");

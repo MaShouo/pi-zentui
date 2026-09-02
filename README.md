@@ -78,6 +78,8 @@ opencode                 opencode-copy-friendly     minimalist
 ────────────────────     ────────────────────
 ```
 
+`accent-rail` — single filled left-rail editor from upstream v0.22 — is also available via `/zentui`.
+
 ### User messages
 
 - `framed` (default) preserves the full-width bordered prompt box with an accent rail
@@ -118,6 +120,16 @@ Spinner glyph motion is always active. Classic and KITT move color across the me
 Both speeds accept safe integers from `30` through `1000` ms. Static ignores text speed without changing it. Classic/KITT combine both cadences through one Pi Loader interval; exact cycles are used within the 1024-frame/512-KiB limits. Pathological custom pairs use a bounded evenly distributed schedule: cycle totals round by at most half a spinner glyph cycle and half a text step, spinner wrap remains continuous, and text phase may reset once per bounded fallback array cycle. Legacy `intervalMs` is accepted only as migration input for `spinnerIntervalMs` when the canonical field is absent.
 
 ### Git Status Icons
+
+### Thinking (Experimental)
+
+**Thinking (Experimental)** uses one private `AssistantMessageComponent` renderer for Rail, Tree, and Streaming, tested against exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, and 0.84.4. It is disabled by default and may break after Pi updates. Zentui installs an enabled startup mode before transcript restoration. A healthy installed controller lets active Streaming switch live to Rail or Tree, and lets Rail and Tree switch live between each other, without reinstalling its patch. Entering Streaming from Rail or Tree saves the choice but keeps the active structural mode until restart. Disabling live restores native thinking and releases Streaming resources. First enable and re-enable after a live disable are also restart-gated. Mode changes while disabled only preconfigure the next enable. Startup failures, missing constructors, incompatible private child layouts, parser limits, theme/render/width errors, and displaced patch ownership fail open to complete native thinking. If cleanup throws while leaving Streaming, disabling still restores native thinking and a structural selection still becomes active; the successful change warns that Streaming is unavailable for the rest of the session.
+
+Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, folds completed reasoning under `Thought` or current-session `Thought for 12.3s`, and owns the configured thinking-toggle binding (Ctrl+T by default) only when started in Streaming. Its input listener and timer are acquired only for an enabled Streaming session start; startup acquisition failure uses native thinking and marks Streaming unavailable. Restored completions cannot recover a duration because Pi does not persist the thinking-end timestamp. Expand/refold and lifecycle tracking are bounded to 256 retained assistant components; evicted entries are first restored natively. All modes restore/dispose on shutdown. Thinking (Experimental) never writes the Working line and does not change its existing **Thinking time** option, working text, Footer, Editor, statuses, or model behavior.
+
+Rail parses each native contiguous thinking run and renders every label through a fresh host-shaped Pi `Markdown` instance before cropping; unsafe or unstructured content remains native.
+
+Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi.
 
 | Icon | Meaning    |
 | ---- | ---------- |
@@ -208,16 +220,17 @@ The package already includes Zentui and its Sakura visual integrations. Do not i
 
 User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, built-in footer segment visibility, and active third-party status placements.
 
-The interactive `/zentui` menu is split into exactly eight component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections:
+The interactive `/zentui` menu is split into nine component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi.
 
 1. **Appearance** — selector-border enablement, style, and colors; icon mode.
 2. **Editor** — editor enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — message enablement, `framed | framed-copy-friendly | compact | labeled` style selection (including **Framed (copy-friendly)**), colors, and a static synthetic Markdown preview.
 4. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom-message toggle and editable list, Tool/Elapsed/Thinking/Tokens toggles, and animated preview.
-5. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and path display.
-6. **Segments** — visibility toggles for non-Git Starship segments.
-7. **Git** — Starship Git segment and probe controls.
-8. **Extensions** — Starship extension-status placement and color controls for active keys.
+5. **Thinking (Experimental)** — upstream v0.22 adds optional Rail, Tree, or Streaming private-thinking renderers; configure `components.thinkingSteps` (`streaming | rail | tree`).
+6. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and repository-relative path display.
+7. **Segments** — visibility toggles for non-Git Starship segments.
+8. **Git** — Starship Git segment and probe controls.
+9. **Extensions** — Starship extension-status placement and color controls for active keys.
 
 Editor, User messages, and Working line retain independent configuration. Editor and User-message previews use fixed synthetic content and remain visible while their component is disabled; the Working-line preview reflects its current configured sample, state, and animation. Each preview appears above its settings. Only the Working-line preview owns an animation timer. Footer's single style selects Pi's built-in Footer (`Native`), Zentui's Starship Footer, or an owned zero-row Footer (`Hidden`). Color and model-label rows update only their owning component.
 
