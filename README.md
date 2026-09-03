@@ -127,7 +127,7 @@ Both speeds accept safe integers from `30` through `1000` ms. Static ignores tex
 
 Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, folds completed reasoning under `Thought` or current-session `Thought for 12.3s`, and owns the configured thinking-toggle binding (Ctrl+T by default) only when started in Streaming. Its input listener and timer are acquired only for an enabled Streaming session start; startup acquisition failure uses native thinking and marks Streaming unavailable. Restored completions cannot recover a duration because Pi does not persist the thinking-end timestamp. Expand/refold and lifecycle tracking are bounded to 256 retained assistant components; evicted entries are first restored natively. All modes restore/dispose on shutdown. Thinking (Experimental) never writes the Working line and does not change its existing **Thinking time** option, working text, Footer, Editor, statuses, or model behavior.
 
-Rail parses each native contiguous thinking run and renders every label through a fresh host-shaped Pi `Markdown` instance before cropping; unsafe or unstructured content remains native.
+Rail parses each native contiguous thinking run and renders every label through a fresh host-shaped Pi `Markdown` instance before cropping. Complete strict SGR styling is stripped before parsing; every other terminal control and unsafe or unstructured content keeps the complete run native.
 
 Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi.
 
