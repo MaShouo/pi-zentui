@@ -212,57 +212,47 @@ export function installToolExecutionStyle(
 			"render",
 			"bash-execution-render",
 			({ predecessor, receiver, args }) => {
-				if (!isEnabled()) return Reflect.apply(predecessor, receiver, args);
 				const width = args[0];
-				const rendered = Reflect.apply(predecessor, receiver, args);
+				if (!isEnabled() || typeof width !== "number" || width <= 4) {
+					return Reflect.apply(predecessor, receiver, args);
+				}
+				// Reserve side rails before Pi wraps output; let Pi own collapse/expand.
+				const rendered = Reflect.apply(predecessor, receiver, [width - 2, ...args.slice(1)]);
 				if (!Array.isArray(rendered) || !rendered.every((line) => typeof line === "string")) {
 					return rendered;
 				}
 				const lines = rendered as string[];
-				if (typeof width !== "number" || width <= 2 || lines.length === 0) return lines;
-
 				const plains = lines.map(stripAnsi);
-				const isRunning = plains.some((p) => p.includes("Running..."));
-				const out: string[] = [];
-
-				for (let i = 0; i < lines.length; i++) {
-					const line = lines[i] ?? "";
-					const plain = plains[i] ?? "";
-					const trimmed = plain.trim();
-
-					// Top / bottom DynamicBorder → sakura gradient frame.
-					if (/^[╭┌╔].*[╮┐╗]$/.test(trimmed) || /^[─═]{3,}$/.test(trimmed)) {
-						const label = isRunning ? "◆ BASH · RUNNING" : "✓ BASH · COMPLETE";
-						out.push(renderSakuraFrameGradient(fitBorderLabel(label, width)));
-						continue;
-					}
-					if (/^[╰└╚].*[╯┘╝]$/.test(trimmed)) {
-						out.push(renderSakuraFrameGradient(bottomBorder(width)));
-						continue;
-					}
-
-					// Command header: `$ cmd` → mint prompt.
-					const cmd = trimmed.match(/^\$\s+(.+)$/);
-					if (cmd) {
-						out.push(`${fg(MINT, "❯")} ${fg([159, 211, 242], cmd[1] ?? "")}`);
-						continue;
-					}
-
-					out.push(line);
+				const top = plains.findIndex((line) => line.trim() !== "");
+				const bottom = plains.findLastIndex((line) => line.trim() !== "");
+				// Native DynamicBorder uses identical horizontal rules at both ends.
+				// Only replace outer borders, never border-like command output.
+				if (
+					top < 0 ||
+					bottom <= top ||
+					!/^([─═]+|[╭┌╔].*[╮┐╗])$/.test(plains[top]?.trim() ?? "") ||
+					!/^([─═]+|[╰└╚].*[╯┘╝])$/.test(plains[bottom]?.trim() ?? "")
+				) {
+					return Reflect.apply(predecessor, receiver, args);
 				}
-
-				// Cap bash stream paint when collapsed (Pi expanded flag not on BashExecution;
-				// keep last N lines so live tail still useful).
-				const BASH_COLLAPSED = 16;
-				if (out.length > BASH_COLLAPSED + 4) {
-					const head = out.slice(0, 3); // borders/header-ish
-					const tail = out.slice(-BASH_COLLAPSED);
-					const more = out.length - head.length - tail.length;
-					if (more > 0) {
-						return [...head, fg([113, 104, 121], `… +${more} lines`), ...tail];
-					}
-				}
-				return out;
+				const status = (receiver as { status?: string }).status;
+				const label =
+					status === "running"
+						? "◆ BASH · RUNNING"
+						: status === "error"
+							? "× BASH · FAILED"
+							: status === "cancelled"
+								? "× BASH · CANCELLED"
+								: "✓ BASH · COMPLETE";
+				const rail = renderSakuraSolid("│");
+				return lines.map((line, index) => {
+					if (index < top || index > bottom) return line;
+					if (index === top) return renderSakuraFrameGradient(fitBorderLabel(label, width));
+					if (index === bottom) return renderSakuraFrameGradient(bottomBorder(width));
+					const cmd = index === top + 1 ? plains[index]?.trim().match(/^\$\s+(.+)$/) : undefined;
+					const body = cmd ? ` ${fg(MINT, "❯")} ${fg([159, 211, 242], cmd[1] ?? "")}` : line;
+					return renderBoxedLine(body, width, rail, rail);
+				});
 			},
 		);
 	} catch (error) {

@@ -1,6 +1,6 @@
 {
 	"name": "pi-sakura-cyberdeck",
-	"version": "2.1.0",
+	"version": "2.1.1",
 	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.22.3.",
 	"type": "module",
 	"license": "MIT",
