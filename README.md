@@ -31,6 +31,10 @@ pi install /path/to/pi-sakura-cyberdeck
 
 Select **sakura-macaron** from `/settings`, then restart Pi once. Use `/zentui` for editor, message, footer, and layout settings, and `/sakura-matrix on|off` for the Matrix widget.
 
+When the Working line is enabled, third-party extensions can publish keyed text segments through Pi's shared event bus. Zentui composes those segments into the owned row so Classic and KITT animate across them with the built-in content. See the [Working-line extension integration](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#working-line-extension-integration) reference.
+
+Zentui detects a broad set of runtime and language modules, preserves Nerd Font icons with an ASCII mode, and can source colors from the active Pi theme or directly from the terminal palette.
+
 ## Zentui foundation
 
 Zentui styles four major Pi surfaces independently:

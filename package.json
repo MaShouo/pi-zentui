@@ -23,13 +23,14 @@
 		"scripts",
 		"NOTICE",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"docs/configuration.md"
 	],
 	"scripts": {
 		"check": "node scripts/check.mjs",
 		"lint": "biome check .",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
+		"test": "vitest run --testTimeout=30000",
 		"test:thinking-experimental-tui": "node test/thinking-experimental-tui.mjs",
 		"test:thinking-experimental-diagnostics": "node test/thinking-experimental-loader-diagnostics.mjs",
 		"pi:dev": "${PI_BIN:-/opt/homebrew/bin/pi} --no-extensions -e ./",

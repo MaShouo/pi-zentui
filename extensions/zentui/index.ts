@@ -100,6 +100,7 @@ import {
 	snapshotWorkingLineHighStyle,
 	WorkingLineController,
 } from "./working-line";
+import { WorkingLineExtensionSegments } from "./working-line-extension-segments";
 
 const ZENTUI_EDITOR_FACTORY = Symbol.for("pi-zentui.editor-factory");
 const ZENTUI_EDITOR_BASE_FACTORY = Symbol.for("pi-zentui.editor-base-factory");
@@ -298,6 +299,7 @@ export default function (pi: ExtensionAPI) {
 	const getCurrentConfig = () => currentConfig;
 	const isSakuraVisualEnabled = () =>
 		isSakuraMacaronVisuals(currentConfig.colors.editorBorder, activeTheme);
+	let invalidateWorkingLinePublisherState = () => {};
 	const workingLine = new WorkingLineController(
 		getCurrentConfig,
 		() => activeTheme as Theme,
@@ -305,7 +307,29 @@ export default function (pi: ExtensionAPI) {
 		Math.random,
 		Date.now,
 		() => interactionMetrics.currentThought(),
+		() => invalidateWorkingLinePublisherState(),
 	);
+	let workingLineSessionReady = false;
+	const workingLineExtensions = new WorkingLineExtensionSegments(
+		pi.events,
+		() =>
+			workingLineSessionReady &&
+			sessionLifecycle.isCurrent() &&
+			currentConfig.components.workingLine.enabled &&
+			activeTuiContext !== undefined &&
+			workingLine.isAvailable(),
+		(segments) => {
+			if (activeTuiContext && sessionLifecycle.isCurrent()) {
+				const applied = workingLine.updateExtensionSegments(segments, activeTuiContext);
+				if (!applied && !workingLine.isAvailable()) {
+					workingLine.invalidateExtensionSegments();
+				}
+				return applied;
+			}
+			return false;
+		},
+	);
+	invalidateWorkingLinePublisherState = () => workingLineExtensions.invalidate();
 	const getContextSnapshot = (ctx: ExtensionContext) => resolveContextUsage(ctx, liveContext.get());
 	const getContextWindow = (ctx: ExtensionContext): number | undefined =>
 		getContextSnapshot(ctx).contextWindow;
@@ -1193,6 +1217,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		const lifecycleGeneration = sessionLifecycle.start();
+		// A new generation must not expose or route extension segments through the previous
+		// session while asynchronous TUI startup is still pending.
+		workingLineSessionReady = false;
+		workingLineExtensions.invalidate();
+		if (activeTuiContext) workingLine.dispose(activeTuiContext);
+		else workingLine.invalidateExtensionSegments();
 		// Reload synchronously so private ownership uses this session's disk snapshot before
 		// any await or transcript restoration.
 		currentConfig = loadConfig();
@@ -1219,6 +1249,7 @@ export default function (pi: ExtensionAPI) {
 		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();
+		workingLineExtensions.invalidate();
 		state.sessionStartEpoch = Date.now();
 		invalidateUsageTotalsCache();
 		resetAgentTimer();
@@ -1227,6 +1258,7 @@ export default function (pi: ExtensionAPI) {
 		repositoryRoots.reset();
 		installUi(ctx);
 		workingLine.startSession(ctx);
+		workingLineSessionReady = true;
 		scheduleEditorReconciliation(ctx);
 	});
 
@@ -1287,6 +1319,7 @@ export default function (pi: ExtensionAPI) {
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
 			currentConfig = saveWorkingLineComponentPatch(patch);
+			if (patch.enabled === false) workingLineExtensions.clear();
 			return workingLine.reconcile(ctx);
 		},
 		setSelectorBordersComponent(
@@ -1372,10 +1405,12 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		workingLineSessionReady = false;
 		thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		workingLine.dispose(ctx);
+		workingLineExtensions.invalidate();
 		cleanupUi(ctx);
 	});
 
