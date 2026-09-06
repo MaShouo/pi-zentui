@@ -240,6 +240,21 @@ Editor, User messages, and Working line retain independent configuration. Editor
 
 Starship-specific Footer rows are shown only while Starship is selected. The **Segments**, **Git**, and **Extensions** sections remain available for preconfiguration under every Footer style. Free-form values such as custom formats, Opencode metadata format, raw colors/styles, and inactive extension keys remain JSON-only; Working-line speed accepts validated custom milliseconds in `/zentui`.
 
+### Component presets
+
+Choose **Appearance → Preset** in `/zentui`, or run `/zentui preset <id>`:
+
+| ID | Editor (enabled) | Footer | User messages |
+| --- | --- | --- | --- |
+| `opencode` | Opencode | Starship | Framed |
+| `opencode-copy-friendly` | Opencode (copy-friendly) | Starship | Framed (copy-friendly) |
+| `rail` | Accent Rail | Starship | Compact (accent rail) |
+| `minimalist` | Minimalist | Hidden (zero rows) | Zentui styling disabled |
+
+Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses the Footer; it is not Native.
+
+The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset keeps settings open for further adjustments. Editor installation waits until the panel closes; if editor ownership prevents application, the saved choice may require reloading Pi.
+
 Useful slash-command shortcuts:
 
 ```text
