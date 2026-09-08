@@ -11,3 +11,10 @@ Sakura additions include the Sakura Macaron theme, header, Matrix widget, and
 Sakura-macaron shimmer styling. The embedded Zentui implementation remains the
 package baseline; this package does not include a nested modified copy of
 pi-zentui.
+
+Thinking (Experimental) folding is adapted from @99percentpeople/pi-thinking-fold
+0.1.9 at 555160c, with the Pi 0.85 thinking MouseRegion unwrap, temporary
+thinkingVisibilityOverrides clear, and shared left-click/Ctrl+T expand behavior
+from 0.1.10 at df27a7b. Original project: https://github.com/99percentpeople/pi-extensions
+License: MIT. The full license text is included in
+extensions/zentui/thinking-experimental.ts.

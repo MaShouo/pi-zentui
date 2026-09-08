@@ -45,6 +45,9 @@ describe("Thinking (Experimental) documentation", () => {
 		const source = readFileSync(join(root, "extensions/zentui/thinking-experimental.ts"), "utf8");
 		expect(source).toContain("Copyright (c) 2026 Zach Yuen");
 		expect(source).toContain("Copyright (c) 2026 Marc Mironescu / FluxGear");
+		expect(source).toContain("0.1.10 at df27a7b");
+		expect(source).toContain("MouseRegion");
+		expect(source).toContain("thinkingVisibilityOverrides");
 		expect(source.match(/Permission is hereby granted, free of charge/g)).toHaveLength(2);
 		expect(source).not.toMatch(/setWorkingMessage|setWorkingVisible/);
 	});

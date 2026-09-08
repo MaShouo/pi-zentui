@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	installPrototypePatch,
 	isPrototypePatchCurrent,
+	isPrototypePatchReachable,
 	ZENTUI_PROTOTYPE_PATCH_REGISTRY,
 } from "../extensions/zentui/prototype-patch-registry";
 
@@ -94,6 +95,59 @@ describe("prototype patch registry updateContent ownership", () => {
 		).toBe(false);
 		cleanup();
 		expect(target.updateContent).toBe(foreign);
+	});
+
+	it("keeps an inner Zentui adapter reachable under a later adapter, but not a foreign wrapper", () => {
+		const target = {
+			updateContent() {
+				return "native";
+			},
+		};
+		const inner = installPrototypePatch(
+			target,
+			"updateContent",
+			"thinking-experimental-update-content",
+			({ predecessor, receiver, args }) => Reflect.apply(predecessor, receiver, args),
+		);
+		const outer = installPrototypePatch(
+			target,
+			"updateContent",
+			"assistant-thinking-content",
+			({ predecessor, receiver, args }) => Reflect.apply(predecessor, receiver, args),
+		);
+		expect(
+			isPrototypePatchCurrent(
+				target,
+				"updateContent",
+				"thinking-experimental-update-content",
+				inner.token,
+			),
+		).toBe(false);
+		expect(
+			isPrototypePatchReachable(
+				target,
+				"updateContent",
+				"thinking-experimental-update-content",
+				inner.token,
+			),
+		).toBe(true);
+		Object.defineProperty(target, "updateContent", {
+			value: function foreignUpdate() {
+				return "foreign";
+			},
+			configurable: true,
+			writable: true,
+		});
+		expect(
+			isPrototypePatchReachable(
+				target,
+				"updateContent",
+				"thinking-experimental-update-content",
+				inner.token,
+			),
+		).toBe(false);
+		outer();
+		inner();
 	});
 
 	it("rejects missing, noncallable, and nonconfigurable targets without leaving registry state", () => {

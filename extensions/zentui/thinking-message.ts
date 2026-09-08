@@ -12,9 +12,16 @@ type AssistantContent = {
 type AssistantMessageRuntime = {
 	contentContainer?: { children?: Component[] };
 	hideThinkingBlock?: boolean;
+	lastMessage?: AssistantMessageLike;
 };
 type AssistantMessageLike = {
 	content?: AssistantContent[];
+};
+// Pi 0.85 wraps thinking Markdown in MouseRegion. Duck-type so Pi 0.84 hosts
+// that do not export MouseRegion still wrap the bare thinking child.
+type ThinkingMouseRegion = Component & {
+	child: Component;
+	handleMouse(event: { type: string; button?: string }): unknown;
 };
 
 /**
@@ -209,6 +216,44 @@ function isThinkingTrailComponent(value: unknown): value is ThinkingTrailCompone
 	);
 }
 
+function getThinkingMouseRegion(component: Component): ThinkingMouseRegion | undefined {
+	const region = component as Partial<ThinkingMouseRegion>;
+	if (!region.child || typeof region.handleMouse !== "function") return undefined;
+	if (typeof region.child.render !== "function") return undefined;
+	return region as ThinkingMouseRegion;
+}
+
+function wrapThinkingChild(child: Component, getTheme: () => Theme | undefined): Component {
+	if (isThinkingTrailComponent(child)) return child;
+	const region = getThinkingMouseRegion(child);
+	if (!region) return new ThinkingTrailComponent(child, getTheme);
+	// Keep MouseRegion as the Container direct child so Pi 0.85 mouse dispatch
+	// still reaches handleMouse. Wrap only the inner thinking surface.
+	if (!isThinkingTrailComponent(region.child)) {
+		try {
+			region.child = new ThinkingTrailComponent(region.child, getTheme);
+		} catch {
+			// Leave the native MouseRegion; click handling stays on the wrapper.
+		}
+	}
+	return child;
+}
+
+function wrapThinkingChildren(
+	runtime: AssistantMessageRuntime,
+	message: AssistantMessageLike | undefined,
+	getTheme: () => Theme | undefined,
+): void {
+	const children = runtime.contentContainer?.children;
+	if (!children || !message) return;
+	if (runtime.hideThinkingBlock) return;
+	for (const index of thinkingChildIndices(message)) {
+		const child = children[index];
+		if (!child) continue;
+		children[index] = wrapThinkingChild(child, getTheme);
+	}
+}
+
 /** Recolor collapsed "✦ Thinking" placeholders that Pi themes as plain thinkingText. */
 function recolorHiddenThinkingLines(lines: string[]): string[] {
 	return lines.map((line) => {
@@ -245,17 +290,7 @@ export function installThinkingMessageStyle(
 			const result = Reflect.apply(predecessor, receiver, args);
 			if (!isEnabled()) return result;
 			const runtime = receiver as AssistantMessageRuntime;
-			const children = runtime.contentContainer?.children;
-			const message = args[0] as AssistantMessageLike | undefined;
-			if (!children || !message) return result;
-			if (runtime.hideThinkingBlock) return result;
-
-			for (const index of thinkingChildIndices(message)) {
-				const child = children[index];
-				if (child && !isThinkingTrailComponent(child)) {
-					children[index] = new ThinkingTrailComponent(child, getTheme);
-				}
-			}
+			wrapThinkingChildren(runtime, args[0] as AssistantMessageLike | undefined, getTheme);
 			return result;
 		},
 	);
@@ -267,6 +302,10 @@ export function installThinkingMessageStyle(
 			"render",
 			"assistant-thinking-hidden-render",
 			({ predecessor, receiver, args }) => {
+				const runtime = receiver as AssistantMessageRuntime;
+				// Experimental rerenderTracked calls the native predecessor directly, so
+				// wrap again here; first-paint wrapping in updateContent is not enough.
+				if (isEnabled()) wrapThinkingChildren(runtime, runtime.lastMessage, getTheme);
 				const rendered = Reflect.apply(predecessor, receiver, args);
 				if (!isEnabled()) return rendered;
 				if (!Array.isArray(rendered) || !rendered.every((line) => typeof line === "string")) {

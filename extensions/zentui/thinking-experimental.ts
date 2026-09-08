@@ -14,7 +14,7 @@ import {
 import type { ThinkingStepsComponentConfig, ThinkingStepsMode } from "./config";
 import {
 	installPrototypePatch,
-	isPrototypePatchCurrent,
+	isPrototypePatchReachable,
 	type PrototypePatchRegistration,
 } from "./prototype-patch-registry";
 import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
@@ -22,7 +22,11 @@ import { parseThinkingSteps, type ThinkingStep } from "./thinking-steps";
 
 /*
  * The rendered-row folding and lifecycle below are adapted from
- * @99percentpeople/pi-thinking-fold 0.1.9 at commit 555160c.
+ * @99percentpeople/pi-thinking-fold 0.1.9 at commit 555160c, with the Pi 0.85
+ * thinking MouseRegion unwrap, temporary thinkingVisibilityOverrides clear,
+ * and shared left-click/Ctrl+T expand behavior from 0.1.10 at df27a7b.
+ * Local Reflect.apply argument forwarding, restoreNative, and displacement
+ * handling are retained rather than re-ported.
  *
  * MIT License
  *
@@ -57,6 +61,19 @@ type PatchableAssistant = {
 	contentContainer?: { children?: Component[] };
 	hideThinkingBlock?: boolean;
 	isStreaming?: boolean;
+	thinkingVisibilityOverrides?: Map<number, boolean>;
+};
+
+// Pi 0.85 wraps thinking Markdown in MouseRegion. Duck-type so Pi 0.84 hosts
+// that do not export MouseRegion can still match the unwrapped inner child.
+type ThinkingMouseRegion = Component & {
+	child: Component;
+	handleMouse(event: { type: string; button?: string }): { handled: true } | undefined;
+};
+
+type StoredMouseHandler = {
+	region: ThinkingMouseRegion;
+	handleMouse: ThinkingMouseRegion["handleMouse"];
 };
 
 type PrivateAssistantConstructor = {
@@ -91,6 +108,7 @@ type TrackedState = {
 	incomplete: boolean;
 	nativeHidden: HiddenState;
 	folded: boolean;
+	mouseHandlers?: StoredMouseHandler[];
 };
 
 type Timing = { startedAt?: number; completedAt?: number };
@@ -406,6 +424,7 @@ type ThinkingMarkdownMatch = Readonly<{
 	markdown: Markdown;
 	shape: NativeMarkdownShape;
 	run: number;
+	region?: ThinkingMouseRegion;
 }>;
 
 type ThinkingMarkdownLayout = Readonly<{
@@ -464,6 +483,8 @@ function trailingDescriptors(message: AssistantMessage): NativeChildDescriptor[]
 /**
  * Mirrors the visible child layouts shipped by the supported Pi hosts. Pi 0.83+
  * coalesces a contiguous thinking run; Pi 0.80.5 emitted one section per block.
+ * Pi 0.85 wraps each thinking Markdown (or hidden-label Text) in MouseRegion;
+ * matching unwraps that wrapper and keeps 0.84 bare Markdown working.
  * Tool calls emit no child here, but still terminate a thinking run and suppress
  * trailing errors, so iteration over the original ordered content is required.
  */
@@ -522,6 +543,13 @@ function exactConstructor(component: Component, expected: { prototype: object })
 	return Object.getPrototypeOf(component) === expected.prototype;
 }
 
+function getThinkingMouseRegion(component: Component): ThinkingMouseRegion | undefined {
+	const region = component as Partial<ThinkingMouseRegion>;
+	if (!region.child || typeof region.handleMouse !== "function") return undefined;
+	if (typeof region.child.render !== "function") return undefined;
+	return region as ThinkingMouseRegion;
+}
+
 function matchNativeLayout(
 	children: Component[],
 	descriptors: NativeChildDescriptor[],
@@ -545,15 +573,19 @@ function matchNativeLayout(
 			if (!descriptor.markers.includes(marker)) return undefined;
 			continue;
 		}
-		if (!exactConstructor(child, Markdown)) return undefined;
-		const shape = markdownShape(child as Markdown);
+		const region = descriptor.thinkingRun !== undefined ? getThinkingMouseRegion(child) : undefined;
+		const inner = region?.child ?? child;
+		if (descriptor.thinkingRun !== undefined && exactConstructor(inner, Text)) continue;
+		if (!exactConstructor(inner, Markdown)) return undefined;
+		const shape = markdownShape(inner as Markdown);
 		if (!shape || shape.text !== descriptor.source) return undefined;
 		if (descriptor.thinkingRun !== undefined) {
 			thinking.push({
 				index,
-				markdown: child as Markdown,
+				markdown: inner as Markdown,
 				shape,
 				run: descriptor.thinkingRun,
+				...(region ? { region } : {}),
 			});
 		}
 	}
@@ -564,11 +596,14 @@ function thinkingMarkdownLayout(
 	children: Component[],
 	message: AssistantMessage,
 ): ThinkingMarkdownLayout | undefined {
+	let hidden: ThinkingMarkdownLayout | undefined;
 	for (const descriptors of nativeChildLayouts(message)) {
 		const layout = matchNativeLayout(children, descriptors);
-		if (layout?.matches.length) return layout;
+		if (!layout) continue;
+		if (layout.matches.length) return layout;
+		hidden ??= layout;
 	}
-	return undefined;
+	return hidden;
 }
 
 function writableOwnChildren(
@@ -592,7 +627,7 @@ export function hasThinkingExperimentalMarkdownIdentity(
 	message: AssistantMessage,
 ): boolean {
 	const owned = writableOwnChildren(instance as PatchableAssistant);
-	return Boolean(owned && thinkingMarkdownLayout(owned.children, message) !== undefined);
+	return Boolean(owned && thinkingMarkdownLayout(owned.children, message)?.matches.length);
 }
 
 function activeThinkingRun(message: AssistantMessage, incomplete: boolean): number | undefined {
@@ -609,6 +644,25 @@ function activeThinkingRun(message: AssistantMessage, incomplete: boolean): numb
 	return contiguousRun;
 }
 
+type ThinkingReplaceResult = "applied" | "hidden" | "incompatible";
+
+function assignThinkingReplacement(
+	match: ThinkingMarkdownMatch,
+	replacement: Component,
+	replacements: Map<number, Component>,
+): boolean {
+	if (!match.region) {
+		replacements.set(match.index, replacement);
+		return true;
+	}
+	try {
+		match.region.child = replacement;
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function replaceThinkingChildren(
 	instance: PatchableAssistant,
 	message: AssistantMessage,
@@ -616,23 +670,28 @@ function replaceThinkingChildren(
 	incomplete: boolean,
 	header: (hidden: boolean) => string,
 	getTheme: () => AccentTheme,
-): boolean {
+): ThinkingReplaceResult {
 	const owned = writableOwnChildren(instance);
-	if (!owned) return false;
+	if (!owned) return "incompatible";
 	const { container, children } = owned;
 	const layout = thinkingMarkdownLayout(children, message);
-	if (!layout) return false;
+	if (!layout) return "incompatible";
+	if (!layout.matches.length) return "hidden";
 	const replacements = new Map<number, Component>();
 	const removals = new Set<number>();
 	if (mode === "streaming") {
 		const template = layout.matches[0]?.shape;
-		if (!template) return false;
+		if (!template) return "incompatible";
 		const context = new FoldContext(incomplete, header, template);
 		for (const [position, match] of layout.matches.entries()) {
-			replacements.set(
-				match.index,
-				new FoldedThinkingSection(match.markdown, context, position === 0),
-			);
+			if (
+				!assignThinkingReplacement(
+					match,
+					new FoldedThinkingSection(match.markdown, context, position === 0),
+					replacements,
+				)
+			)
+				return "incompatible";
 		}
 	} else {
 		const runs = new Map<number, ThinkingMarkdownMatch[]>();
@@ -649,31 +708,34 @@ function replaceThinkingChildren(
 			const source = matches.map((match) => match.shape.text).join("\n\n");
 			const steps = parseThinkingSteps(source);
 			if (!steps?.length) continue;
-			const nativeChildren = children.slice(first.index, last.index + 1);
 			const native =
-				nativeChildren.length === 1 ? first.markdown : new NativeThinkingRun(nativeChildren);
-			replacements.set(
-				first.index,
-				createThinkingStepsRows(
-					native,
-					{ ...first.shape, text: source },
-					steps,
-					mode,
-					run === activeRun,
-					getTheme,
-				),
+				matches.length === 1
+					? first.markdown
+					: new NativeThinkingRun(matches.map((match) => match.markdown));
+			const replacement = createThinkingStepsRows(
+				native,
+				{ ...first.shape, text: source },
+				steps,
+				mode,
+				run === activeRun,
+				getTheme,
 			);
-			for (let index = first.index + 1; index <= last.index; index += 1) removals.add(index);
+			if (matches.length === 1) {
+				if (!assignThinkingReplacement(first, replacement, replacements)) return "incompatible";
+			} else {
+				replacements.set(first.index, replacement);
+				for (let index = first.index + 1; index <= last.index; index += 1) removals.add(index);
+			}
 		}
 	}
-	if (replacements.size === 0) return true;
+	if (replacements.size === 0 && removals.size === 0) return "applied";
 	const nextChildren = children.flatMap((child, index) => {
 		const replacement = replacements.get(index);
 		if (replacement) return [replacement];
 		return removals.has(index) ? [] : [child];
 	});
 	container.children = nextChildren;
-	return true;
+	return "applied";
 }
 
 function eventType(event: unknown): string | undefined {
@@ -727,13 +789,19 @@ function renderWithHiddenState(
 	predecessor: (this: unknown, ...args: unknown[]) => unknown,
 	args: unknown[],
 	hidden: HiddenState,
+	clearVisibilityOverrides = false,
 ): unknown {
 	const current = hiddenState(instance);
+	const overrides = instance.thinkingVisibilityOverrides;
+	const shouldClear = clearVisibilityOverrides && overrides instanceof Map;
 	try {
 		instance.hideThinkingBlock = hidden.value;
+		// Native per-run hiding must not prevent fold discovery or Ctrl+T/click expand.
+		if (shouldClear) instance.thinkingVisibilityOverrides = new Map();
 		return Reflect.apply(predecessor, instance, args);
 	} finally {
 		setHiddenState(instance, current);
+		if (shouldClear) instance.thinkingVisibilityOverrides = overrides;
 	}
 }
 
@@ -973,9 +1041,16 @@ export class ThinkingExperimentalController {
 					const renderNativeWithHiddenState = (
 						instance: PatchableAssistant,
 						hidden: HiddenState,
+						clearVisibilityOverrides = false,
 					) => {
 						try {
-							return renderWithHiddenState(instance, predecessor, args, hidden);
+							return renderWithHiddenState(
+								instance,
+								predecessor,
+								args,
+								hidden,
+								clearVisibilityOverrides,
+							);
 						} catch (error) {
 							dropFailedPredecessor();
 							throw error;
@@ -1002,10 +1077,14 @@ export class ThinkingExperimentalController {
 					// including object identity, remains authoritative to the host.
 					const nativeResult =
 						mode === "streaming"
-							? renderNativeWithHiddenState(instance, {
-									own: true,
-									value: false,
-								})
+							? renderNativeWithHiddenState(
+									instance,
+									{
+										own: true,
+										value: false,
+									},
+									true,
+								)
 							: renderNative();
 					if (mode !== "streaming" && nativeHidden.value === true) {
 						this.declineOwnership(component);
@@ -1046,27 +1125,32 @@ export class ThinkingExperimentalController {
 							(mode === "streaming" && (this.streamingListenerPoisoned || !this.stopInput))
 						)
 							return nativeResult;
-						if (mode === "streaming" && this.expanded) return nativeResult;
-						if (
-							!replaceThinkingChildren(
-								instance,
-								message,
-								mode,
-								incomplete,
-								(hidden) => this.headerFor(message, incomplete, hidden),
-								() => {
-									const theme = this.context?.ui.theme as unknown as AccentTheme | undefined;
-									if (!theme || typeof theme.fg !== "function")
-										throw new Error("theme unavailable");
-									return theme;
-								},
-							)
-						) {
+						if (mode === "streaming" && this.expanded) {
+							this.bindStreamingMouseExpand(instance, trackedState);
+							return nativeResult;
+						}
+						const replaced = replaceThinkingChildren(
+							instance,
+							message,
+							mode,
+							incomplete,
+							(hidden) => this.headerFor(message, incomplete, hidden),
+							() => {
+								const theme = this.context?.ui.theme as unknown as AccentTheme | undefined;
+								if (!theme || typeof theme.fg !== "function") throw new Error("theme unavailable");
+								return theme;
+							},
+						);
+						if (replaced === "incompatible") {
 							this.failShape("Pi's private assistant renderer shape is incompatible");
 							return nativeResult;
 						}
-						const state = this.states.get(component);
-						if (state) state.folded = true;
+						if (replaced === "hidden") {
+							this.declineOwnership(component);
+							return nativeResult;
+						}
+						trackedState.folded = true;
+						if (mode === "streaming") this.bindStreamingMouseExpand(instance, trackedState);
 						return nativeResult;
 					} catch {
 						this.declineOwnership(component);
@@ -1083,6 +1167,53 @@ export class ThinkingExperimentalController {
 			this.unavailableReason =
 				error instanceof Error ? error.message : "Private renderer patch installation failed";
 			return false;
+		}
+	}
+
+	private toggleExpanded(): void {
+		if (
+			this.disposed ||
+			!this.active ||
+			this.activeMode !== "streaming" ||
+			this.checkDisplacement()
+		)
+			return;
+		this.expanded = !this.expanded;
+		this.rerenderTracked();
+	}
+
+	private bindStreamingMouseExpand(instance: PatchableAssistant, trackedState: TrackedState): void {
+		const children = instance.contentContainer?.children;
+		if (!Array.isArray(children)) return;
+		const stored: StoredMouseHandler[] = [];
+		for (const child of children) {
+			const region = getThinkingMouseRegion(child);
+			if (!region) continue;
+			stored.push({
+				region,
+				handleMouse: region.handleMouse.bind(region),
+			});
+			try {
+				region.handleMouse = (event) => {
+					if (event.type !== "click" || event.button !== "left") return undefined;
+					this.toggleExpanded();
+					return { handled: true };
+				};
+			} catch {
+				// Leave the native click handler; fold still owns the inner child.
+			}
+		}
+		trackedState.mouseHandlers = stored.length ? stored : undefined;
+	}
+
+	private restoreStreamingMouseHandlers(trackedState: TrackedState): void {
+		if (!trackedState.mouseHandlers?.length) return;
+		for (const { region, handleMouse } of trackedState.mouseHandlers) {
+			try {
+				region.handleMouse = handleMouse;
+			} catch {
+				// Stale regions are discarded when the predecessor rebuilds children.
+			}
 		}
 	}
 
@@ -1305,10 +1436,7 @@ export class ThinkingExperimentalController {
 					return;
 				}
 				if (!matches) return;
-				if (!isKeyRelease(data)) {
-					this.expanded = !this.expanded;
-					this.rerenderTracked();
-				}
+				if (!isKeyRelease(data)) this.toggleExpanded();
 				return { consume: true };
 			});
 		} catch {
@@ -1464,6 +1592,7 @@ export class ThinkingExperimentalController {
 			processed += 1;
 			const instance = component as PatchableAssistant;
 			try {
+				this.restoreStreamingMouseHandlers(state);
 				// A visible native predecessor has already produced the authoritative children
 				// when first-message timer acquisition fails inside track(). Preserve their exact
 				// identity rather than invoking the predecessor a second time.
@@ -1492,10 +1621,16 @@ export class ThinkingExperimentalController {
 					const mode = this.activeMode;
 					if (!mode) continue;
 					if (mode === "streaming") {
-						renderWithHiddenState(instance, state.predecessor, state.args, {
-							own: true,
-							value: false,
-						});
+						renderWithHiddenState(
+							instance,
+							state.predecessor,
+							state.args,
+							{
+								own: true,
+								value: false,
+							},
+							true,
+						);
 					} else {
 						renderWithHiddenState(instance, state.predecessor, state.args, state.nativeHidden);
 						if (state.nativeHidden.value === true) continue;
@@ -1506,25 +1641,26 @@ export class ThinkingExperimentalController {
 						(mode !== "streaming" || !this.expanded) &&
 						hasThinking(state.message)
 					) {
-						if (
-							!replaceThinkingChildren(
-								instance,
-								state.message,
-								mode,
-								state.incomplete,
-								(hidden) => this.headerFor(state.message, state.incomplete, hidden),
-								() => {
-									const theme = this.context?.ui.theme as unknown as AccentTheme | undefined;
-									if (!theme || typeof theme.fg !== "function")
-										throw new Error("theme unavailable");
-									return theme;
-								},
-							)
-						) {
+						const replaced = replaceThinkingChildren(
+							instance,
+							state.message,
+							mode,
+							state.incomplete,
+							(hidden) => this.headerFor(state.message, state.incomplete, hidden),
+							() => {
+								const theme = this.context?.ui.theme as unknown as AccentTheme | undefined;
+								if (!theme || typeof theme.fg !== "function") throw new Error("theme unavailable");
+								return theme;
+							},
+						);
+						if (replaced === "incompatible") {
 							this.failShape("Pi's private assistant renderer shape is incompatible");
 							break;
 						}
-						state.folded = true;
+						if (replaced === "applied") state.folded = true;
+					}
+					if (mode === "streaming" && this.active) {
+						this.bindStreamingMouseExpand(instance, state);
 					}
 				} catch {
 					this.failShape("Pi's private assistant renderer failed during a live rerender");
@@ -1597,10 +1733,12 @@ export class ThinkingExperimentalController {
 	}
 
 	private checkDisplacement(): boolean {
+		// Stay active while this patch still runs under another Zentui adapter on
+		// the same method. A foreign outermost wrapper is still displacement.
 		if (
 			this.installed &&
 			(!AssistantMessageComponent ||
-				!isPrototypePatchCurrent(
+				!isPrototypePatchReachable(
 					AssistantMessageComponent.prototype,
 					"updateContent",
 					PATCH_ADAPTER,

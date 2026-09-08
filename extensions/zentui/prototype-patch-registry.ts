@@ -198,6 +198,40 @@ export function isPrototypePatchCurrent(
 	);
 }
 
+/**
+ * True while this adapter still runs in the Zentui predecessor chain, even when
+ * another Zentui adapter owns the outermost prototype slot. A foreign wrapper
+ * that is not in the registry still counts as displacement.
+ */
+export function isPrototypePatchReachable(
+	targetValue: object,
+	method: PatchMethod,
+	adapter: PrototypePatchAdapter,
+	token?: symbol,
+): boolean {
+	const target = targetValue as PatchTarget;
+	const registry = existingRegistry(target);
+	const record = registry?.get(adapter);
+	if (
+		!record ||
+		record.method !== method ||
+		!record.registration?.behavior ||
+		(token !== undefined && record.registration.token !== token)
+	) {
+		return false;
+	}
+	let cursor: unknown = target[method];
+	const seen = new Set<unknown>();
+	while (typeof cursor === "function" && !seen.has(cursor)) {
+		seen.add(cursor);
+		if (cursor === record.wrapper) return true;
+		const owner = [...(registry?.values() ?? [])].find((entry) => entry.wrapper === cursor);
+		if (!owner) return false;
+		cursor = owner.predecessor;
+	}
+	return false;
+}
+
 export function removePrototypePatch(
 	targetValue: object,
 	method: PatchMethod,

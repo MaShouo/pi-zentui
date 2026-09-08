@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThinkingStepsComponentConfig } from "../extensions/zentui/config";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import {
+	hasThinkingExperimentalMarkdownIdentity,
 	THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
 	ThinkingExperimentalController,
 } from "../extensions/zentui/thinking-experimental";
@@ -178,6 +179,126 @@ function installLegacyThinkingRenderer(
 			this.contentContainer = container;
 			afterNative?.(container, children);
 			return value;
+		},
+	});
+}
+
+class HostMouseRegion implements Component {
+	child: Component;
+	handleMouse: (event: { type: string; button?: string }) => { handled: true } | undefined;
+
+	constructor(
+		child: Component,
+		onMouse: (event: { type: string; button?: string }) => { handled: true } | undefined,
+	) {
+		this.child = child;
+		this.handleMouse = (event) => {
+			if (event.type !== "click" || event.button !== "left") return undefined;
+			return onMouse(event);
+		};
+	}
+
+	render(width: number): string[] {
+		return this.child.render(width);
+	}
+
+	invalidate(): void {
+		this.child.invalidate();
+	}
+}
+
+function coalescedThinkingTexts(value: AssistantMessage): string[] {
+	const texts: string[] = [];
+	for (let index = 0; index < value.content.length; index += 1) {
+		const content = value.content[index];
+		if (content?.type !== "thinking") continue;
+		const blocks: string[] = [];
+		for (; index < value.content.length; index += 1) {
+			const next = value.content[index];
+			if (next?.type !== "thinking") break;
+			const source = next.thinking.trim();
+			if (source) blocks.push(source);
+		}
+		index -= 1;
+		if (blocks.length) texts.push(blocks.join("\n\n"));
+	}
+	return texts;
+}
+
+function thinkingMouseRegions(assistant: AssistantMessageComponent): HostMouseRegion[] {
+	const children = (assistant as unknown as { contentContainer?: { children?: Component[] } })
+		.contentContainer?.children;
+	return (children ?? []).filter(
+		(child): child is HostMouseRegion => child instanceof HostMouseRegion,
+	);
+}
+
+function installPi85ThinkingRenderer(): void {
+	const native = originalDescriptor?.value as (this: unknown, ...args: unknown[]) => unknown;
+	const constructors = new Map<string, object>([
+		["Markdown", Markdown.prototype],
+		["Spacer", Spacer.prototype],
+		["Text", Text.prototype],
+	]);
+	Object.defineProperty(prototype, "updateContent", {
+		...originalDescriptor,
+		value: function pi85Thinking(
+			this: {
+				contentContainer?: { children?: Component[] };
+				hideThinkingBlock?: boolean;
+				thinkingVisibilityOverrides?: Map<number, boolean>;
+			},
+			...args: unknown[]
+		) {
+			const value = args[0] as AssistantMessage;
+			const isStreaming = args[1] as boolean | undefined;
+			const result = Reflect.apply(native, this, args);
+			const children = this.contentContainer?.children;
+			if (!Array.isArray(children)) return result;
+			for (const child of children) {
+				const expected = constructors.get(child.constructor.name);
+				if (expected && Object.getPrototypeOf(child) !== expected)
+					Object.setPrototypeOf(child, expected);
+			}
+			if (!(this.thinkingVisibilityOverrides instanceof Map)) {
+				this.thinkingVisibilityOverrides = new Map();
+			}
+			const texts = coalescedThinkingTexts(value);
+			let runIndex = 0;
+			for (let index = 0; index < children.length; index += 1) {
+				const child = children[index];
+				if (!child) continue;
+				const markdownText =
+					Object.getPrototypeOf(child) === Markdown.prototype
+						? (child as unknown as { text?: string }).text
+						: undefined;
+				const isThinkingMarkdown =
+					typeof markdownText === "string" && texts[runIndex] === markdownText;
+				const isHiddenThinkingText =
+					Object.getPrototypeOf(child) === Text.prototype &&
+					runIndex < texts.length &&
+					this.hideThinkingBlock === true;
+				if (!isThinkingMarkdown && !isHiddenThinkingText) continue;
+				const capturedRun = runIndex;
+				const hidden =
+					this.thinkingVisibilityOverrides.get(capturedRun) ?? this.hideThinkingBlock === true;
+				runIndex += 1;
+				const inner = hidden
+					? new Text("Thinking...", 1, 0)
+					: isThinkingMarkdown
+						? child
+						: new Markdown(texts[capturedRun] ?? "", 1, 0, markdownTheme, {
+								color: identity,
+								italic: true,
+							});
+				children[index] = new HostMouseRegion(inner, (event) => {
+					if (event.type !== "click" || event.button !== "left") return undefined;
+					this.thinkingVisibilityOverrides?.set(capturedRun, !hidden);
+					Reflect.apply(prototype.updateContent, this, [value, isStreaming]);
+					return { handled: true };
+				});
+			}
+			return result;
 		},
 	});
 }
@@ -1664,5 +1785,182 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		expect(host.stopInput).toHaveBeenCalledTimes(1);
 		value.shutdown();
 		expect(prototype.updateContent).toBe(foreign);
+	});
+
+	it.each(["rail", "tree", "streaming"] as const)(
+		"unwraps a Pi 0.85 thinking MouseRegion in %s without replacing the wrapper",
+		(mode) => {
+			installPi85ThinkingRenderer();
+			const current = message("# One\n# Two\n# Three\n# Four\n# Five\n# Six", 1_000);
+			const native = component();
+			native.updateContent(current, true);
+			expect(hasThinkingExperimentalMarkdownIdentity(native, current)).toBe(true);
+			expect(thinkingMouseRegions(native)).toHaveLength(1);
+
+			const host = context();
+			const value = controller({ enabled: true, mode });
+			expect(value.startSession(host.ctx)).toEqual({ applied: true });
+			const assistant = component();
+			assistant.updateContent(current, true);
+			const regions = thinkingMouseRegions(assistant);
+			expect(regions).toHaveLength(1);
+			const output = plain(assistant.render(80)).join("\n");
+			if (mode === "streaming") {
+				expect(output).toContain("Thinking 0.0s");
+				expect(output).not.toContain("# One");
+			} else {
+				expect(output).toContain(mode === "rail" ? "│ • Six" : "└─ • Six");
+			}
+			expect(value.state).toMatchObject({ active: true, available: true });
+		},
+	);
+
+	it("keeps 0.84 bare Markdown foldable beside a Pi 0.85 MouseRegion host", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const value = controller({ enabled: true, mode: "tree" });
+		expect(value.startSession(context().ctx)).toEqual({ applied: true });
+		const assistant = component();
+		assistant.updateContent(message("# Bare markdown", 1_000), true);
+		expect(thinkingMouseRegions(assistant)).toHaveLength(0);
+		expect(plain(assistant.render(80)).join("\n")).toContain("└─ • Bare markdown");
+	});
+
+	it("shares Streaming expand between left-click and Ctrl+T, then restores native click", () => {
+		installPi85ThinkingRenderer();
+		const host = context();
+		const value = controller({ enabled: true, mode: "streaming" }, () => 8_100);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		const reasoning = Array.from({ length: 8 }, (_, index) => `click row ${index + 1}  `).join(
+			"\n",
+		);
+		const current = message(reasoning, 7_000, "Final **answer**");
+		assistant.updateContent(current, true);
+		expect(plain(assistant.render(40))).toContain(" Thinking 0.0s  (ctrl+t to expand)");
+
+		const foldedRegion = thinkingMouseRegions(assistant)[0];
+		expect(foldedRegion?.handleMouse({ type: "click", button: "left" })).toEqual({
+			handled: true,
+		});
+		const expanded = plain(assistant.render(40));
+		expect(expanded.some((line) => line.includes("Thinking "))).toBe(false);
+		expect(expanded.some((line) => line.includes("click row 1"))).toBe(true);
+
+		expect(host.input("\x14")).toEqual({ consume: true });
+		expect(plain(assistant.render(40))).toContain(" Thinking 0.0s  (ctrl+t to expand)");
+
+		value.shutdown();
+		const native = plain(assistant.render(40)).join("\n");
+		expect(native).toContain("click row 1");
+		expect(native).not.toMatch(/Thinking \d|Thought(?: for)?/);
+		const restoredRegion = thinkingMouseRegions(assistant)[0];
+		expect(restoredRegion?.handleMouse({ type: "click", button: "left" })).toEqual({
+			handled: true,
+		});
+		expect(plain(assistant.render(40)).join("\n")).toContain("Thinking...");
+		expect(plain(assistant.render(40)).join("\n")).not.toContain("click row 1");
+	});
+
+	it("clears Pi 0.85 per-run hide overrides in Streaming and restores them on dispose", () => {
+		installPi85ThinkingRenderer();
+		const value = controller({ enabled: true, mode: "streaming" }, () => 90_000);
+		expect(value.startSession(context().ctx)).toEqual({ applied: true });
+		const assistant = component(false);
+		const runtime = assistant as unknown as {
+			thinkingVisibilityOverrides?: Map<number, boolean>;
+		};
+		const overrides = new Map<number, boolean>([[0, true]]);
+		runtime.thinkingVisibilityOverrides = overrides;
+		const current = message("# Override hidden", 89_000);
+		assistant.updateContent(current, true);
+		expect(runtime.thinkingVisibilityOverrides).toBe(overrides);
+		expect(overrides.get(0)).toBe(true);
+		expect(plain(assistant.render(80)).join("\n")).toContain("Thinking 0.0s");
+		expect(value.diagnostics.trackedComponents).toBe(1);
+		value.shutdown();
+		expect(runtime.thinkingVisibilityOverrides).toBe(overrides);
+		const restored = plain(assistant.render(80)).join("\n");
+		expect(restored).toContain("Thinking...");
+		expect(restored).not.toContain("Override hidden");
+	});
+
+	it.each(["rail", "tree"] as const)(
+		"declines %s ownership for Pi 0.85 per-run hide instead of failing the renderer",
+		(mode) => {
+			installPi85ThinkingRenderer();
+			const value = controller({ enabled: true, mode });
+			expect(value.startSession(context().ctx)).toEqual({ applied: true });
+			const assistant = component(false);
+			const current = message("# Visible\n# Latest", 81_000);
+			assistant.updateContent(current, true);
+			expect(value.diagnostics.trackedComponents).toBe(1);
+			expect(plain(assistant.render(80)).join("\n")).toContain(
+				mode === "rail" ? "│ • Latest" : "└─ • Latest",
+			);
+			const region = thinkingMouseRegions(assistant)[0];
+			expect(region?.handleMouse({ type: "click", button: "left" })).toEqual({ handled: true });
+			expect(value.state).toMatchObject({ active: true, available: true });
+			expect(value.diagnostics.trackedComponents).toBe(0);
+			const hidden = plain(assistant.render(80)).join("\n");
+			expect(hidden).toContain("Thinking...");
+			expect(hidden).not.toContain("Visible");
+		},
+	);
+
+	it("forwards updateContent stream args through a Pi 0.85 MouseRegion predecessor", () => {
+		installPi85ThinkingRenderer();
+		const forwarded: Array<{ count: number; isStreaming: unknown }> = [];
+		const pi85 = prototype.updateContent;
+		Object.defineProperty(prototype, "updateContent", {
+			...originalDescriptor,
+			value: function recordStreamArgs(this: unknown, ...args: unknown[]) {
+				forwarded.push({ count: args.length, isStreaming: args[1] });
+				return Reflect.apply(pi85, this, args);
+			},
+		});
+		const value = controller({ enabled: true, mode: "streaming" });
+		expect(value.startSession(context().ctx)).toEqual({ applied: true });
+		const assistant = component();
+		assistant.updateContent(message("# Streamed", 4_000), true);
+		expect(forwarded.some((entry) => entry.count >= 2 && entry.isStreaming === true)).toBe(true);
+		assistant.updateContent(message("# Streamed", 4_000));
+		expect(forwarded.at(-1)?.count).toBeGreaterThanOrEqual(1);
+	});
+
+	it("restores native MouseRegion children when Streaming ownership is displaced", () => {
+		installPi85ThinkingRenderer();
+		const host = context();
+		const requestRender = vi.fn();
+		const value = controller({ enabled: true, mode: "streaming" }, Date.now, requestRender);
+		value.startSession(host.ctx);
+		const assistant = component();
+		assistant.updateContent(
+			message(
+				Array.from({ length: 8 }, (_, index) => `mouse displaced row ${index + 1}  `).join("\n"),
+				1_000,
+			),
+			false,
+		);
+		expect(plain(assistant.render(80)).join("\n")).toContain("Thought");
+		expect(thinkingMouseRegions(assistant)).toHaveLength(1);
+		const zentuiWrapper = prototype.updateContent;
+		const foreign = function foreignUpdate(this: unknown, ...args: unknown[]) {
+			return Reflect.apply(zentuiWrapper, this, args);
+		};
+		Object.defineProperty(prototype, "updateContent", {
+			...Object.getOwnPropertyDescriptor(prototype, "updateContent"),
+			value: foreign,
+		});
+		expect(value.state).toMatchObject({
+			available: false,
+			active: false,
+			displaced: true,
+		});
+		const restored = plain(assistant.render(80)).join("\n");
+		expect(restored).not.toMatch(/Thinking \d|Thought(?: for)?/);
+		expect(restored).toContain("mouse displaced row 1");
+		expect(restored).toContain("mouse displaced row 8");
+		expect(thinkingMouseRegions(assistant)).toHaveLength(1);
+		expect(requestRender).toHaveBeenCalledTimes(1);
 	});
 });
