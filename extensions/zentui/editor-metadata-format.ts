@@ -1,10 +1,14 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { CodexQuota } from "./codex-quota";
+import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
+import { componentColor, editorShellColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
 import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
 
 export type EditorMetadataValues = {
+	codexQuota?: CodexQuota;
 	model: string;
 	modelId: string;
 	modelName: string;
@@ -135,23 +139,38 @@ export function sanitizeEditorMetadataText(value: string): string {
 function editorThinkingStyle(config: ZentuiConfig, level: string): string | undefined {
 	switch (level.toLowerCase()) {
 		case "minimal":
-			return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMinimal") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "low":
-			return config.colors.editorThinkingLow ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingLow") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "medium":
-			return config.colors.editorThinkingMedium ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMedium") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "high":
-			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingHigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "xhigh":
-			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "max":
 			return (
-				config.colors.editorThinkingMax ??
-				config.colors.editorThinkingXhigh ??
-				config.colors.editorThinking
+				componentColor(config, "editor", "thinkingMax") ??
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
 			);
 		default:
-			return config.colors.editorThinking;
+			return componentColor(config, "editor", "thinking");
 	}
 }
 
@@ -160,7 +179,12 @@ function renderVariable(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): { plain: string; styled: string } {
+	if (name === "codex_quota") {
+		const styled = renderCodexQuota(values.codexQuota, uiTheme, config, "editor");
+		return { plain: styled ? codexQuotaText(values.codexQuota) : "", styled };
+	}
 	const colorSource = config.components.editor.colorSource;
 	const thinking = values.thinking.toLowerCase() === "off" ? "" : values.thinking;
 	const raw =
@@ -190,13 +214,19 @@ function renderVariable(
 	if (!plain) return { plain: "", styled: "" };
 
 	if (name === "model" || name === "model_id" || name === "model_name") {
+		const chrome = shellMode
+			? editorShellColor(config)
+			: {
+					color: componentColor(config, "editor", "model"),
+					fallback: EDITOR_ACCENT_FALLBACK,
+				};
 		return {
 			plain,
 			styled: renderStyleForSourceOrFallback(
 				uiTheme,
 				colorSource,
-				config.colors.editorModel,
-				EDITOR_ACCENT_FALLBACK,
+				chrome.color,
+				chrome.fallback,
 				plain,
 			),
 		};
@@ -207,7 +237,7 @@ function renderVariable(
 			styled: renderStyleForSourceOrFallback(
 				uiTheme,
 				colorSource,
-				config.colors.editorProvider,
+				componentColor(config, "editor", "provider"),
 				"text",
 				plain,
 			),
@@ -236,6 +266,7 @@ function renderTokens(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): RenderedTokens {
 	let styled = "";
 	let hasDynamic = false;
@@ -253,13 +284,13 @@ function renderTokens(
 		}
 		if (token.kind === "var") {
 			hasDynamic = true;
-			const rendered = renderVariable(token.name, values, uiTheme, config);
+			const rendered = renderVariable(token.name, values, uiTheme, config, shellMode);
 			styled += rendered.styled;
 			if (rendered.plain) hasNonEmptyDynamic = true;
 			continue;
 		}
 
-		const rendered = renderTokens(token.tokens, values, uiTheme, config);
+		const rendered = renderTokens(token.tokens, values, uiTheme, config, shellMode);
 		const visible = !rendered.hasDynamic || rendered.hasNonEmptyDynamic;
 		hasDynamic = true;
 		if (visible) {
@@ -276,6 +307,7 @@ export function renderEditorMetadataFormatSplit(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): EditorMetadataZones {
 	const tokens = parseFooterFormat(sanitizeEditorMetadataText(format));
 	const fillIndices: number[] = [];
@@ -287,22 +319,23 @@ export function renderEditorMetadataFormatSplit(
 	const second = fillIndices[1];
 	if (first === undefined) {
 		return {
-			left: renderTokens(tokens, values, uiTheme, config).styled,
+			left: renderTokens(tokens, values, uiTheme, config, shellMode).styled,
 			middle: "",
 			right: "",
 		};
 	}
 	if (second === undefined) {
 		return {
-			left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
+			left: renderTokens(tokens.slice(0, first), values, uiTheme, config, shellMode).styled,
 			middle: "",
-			right: renderTokens(tokens.slice(first + 1), values, uiTheme, config).styled,
+			right: renderTokens(tokens.slice(first + 1), values, uiTheme, config, shellMode).styled,
 		};
 	}
 	return {
-		left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
-		middle: renderTokens(tokens.slice(first + 1, second), values, uiTheme, config).styled,
-		right: renderTokens(tokens.slice(second + 1), values, uiTheme, config).styled,
+		left: renderTokens(tokens.slice(0, first), values, uiTheme, config, shellMode).styled,
+		middle: renderTokens(tokens.slice(first + 1, second), values, uiTheme, config, shellMode)
+			.styled,
+		right: renderTokens(tokens.slice(second + 1), values, uiTheme, config, shellMode).styled,
 	};
 }
 
@@ -311,11 +344,13 @@ export function renderEditorMetadataFormat(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): string {
 	return renderTokens(
 		parseFooterFormat(sanitizeEditorMetadataText(format)),
 		values,
 		uiTheme,
 		config,
+		shellMode,
 	).styled;
 }

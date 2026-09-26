@@ -1,5 +1,9 @@
+import { stripVTControlCharacters } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import type { CodexQuota } from "./codex-quota";
+import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
+import { componentColor } from "./component-colors";
 import type { SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
@@ -9,17 +13,20 @@ import {
 	sanitizeExtensionStatusText,
 } from "./extension-status";
 import {
+	type CompactFormatChunk,
 	collectFooterFormatReferences,
-	compileCompactFormat,
+	compileCompactFormatSplit,
 	parseFooterFormat,
 	renderFormatSplit,
 	renderFormatTokens,
 	stripOrphanSeparators,
 } from "./footer-format";
 import {
+	type CompactLayoutChunk,
 	compactChunkBudget,
 	fullFooterFitsAligned,
 	packCompactChunks,
+	packCompactZones,
 	reflowFullFooter,
 } from "./footer-layout";
 import { truncateFooterText } from "./footer-text";
@@ -212,7 +219,9 @@ export function installFooter(
 		setRequestRender: (fn: (() => void) | undefined) => void;
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
+		getThinkingLevel?: () => string | undefined;
 		getLiveContext?: () => LiveContextOverride | undefined;
+		getCodexQuota?: () => CodexQuota | undefined;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
 	},
@@ -233,10 +242,16 @@ export function installFooter(
 				hooks.onDispose?.();
 			},
 			invalidate() {},
-			render(width: number): string[] {
+			render: function renderFooter(width: number, showQuota = true): string[] {
 				if (width <= 0) return [""];
 				const config = getConfig();
 				const footer = config.components.footer;
+				const quota =
+					showQuota && ctx.model?.provider === "openai-codex" ? hooks.getCodexQuota?.() : undefined;
+				const styledQuota = renderCodexQuota(quota, theme, config, "footer");
+				// Include quota-enabled conditional groups when scanning non-quota text.
+				let quotaLabel = styledQuota;
+				let quotaProbe = "";
 				const footerModelLabel = modelLabelFor(state, footer.modelLabel);
 				const wideFormatTokens = config.components.footer.styles.starship.format
 					? parseFooterFormat(config.components.footer.styles.starship.format)
@@ -254,7 +269,9 @@ export function installFooter(
 				);
 				const colorSource = config.components.footer.colorSource;
 				const sakuraVisuals = isSakuraMacaronVisuals(config.colors.editorBorder, theme);
-				const iconMode = config.icons.mode;
+				const iconMode = config.icons.effectiveMode;
+				// Auto chooses safe icon glyphs, not whether Sakura chrome is Unicode.
+				const asciiChrome = sakuraVisuals ? config.icons.mode === "ascii" : iconMode === "ascii";
 				const phase = pulsePhase();
 				const pathDisplay = config.components.footer.styles.starship.pathDisplay;
 				const formattedCwd = sanitizeEditorMetadataText(
@@ -293,12 +310,22 @@ export function installFooter(
 					? config.components.footer.styles.starship.separator === "none"
 						? separatorRaw
 						: renderSakuraGradient(separatorRaw, phase * 0.5)
-					: renderStyleForSource(theme, colorSource, config.colors.separator, separatorRaw);
+					: renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "separator"),
+							separatorRaw,
+						);
 				const innerWidth = Math.max(1, width - 2);
 				const cwdLabel =
-					sakuraVisuals && iconMode !== "ascii"
+					sakuraVisuals && !asciiChrome
 						? renderSakuraGradient(formattedCwd, phase * 0.25)
-						: renderStyleForSource(theme, colorSource, config.colors.cwd, formattedCwd);
+						: renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "cwd"),
+								formattedCwd,
+							);
 				const needsSessionName =
 					(config.components.footer.styles.starship.format
 						? wideReferences.has("session_name")
@@ -308,7 +335,12 @@ export function installFooter(
 					? sanitizeExtensionStatusText(ctx.sessionManager.getSessionName() ?? "")
 					: "";
 				const sessionNameLabel = sessionName
-					? renderStyleForSource(theme, colorSource, config.colors.sessionName, sessionName)
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "sessionName"),
+							sessionName,
+						)
 					: "";
 				const builtInSessionNameLabel = sessionNameLabel ? `in ${sessionNameLabel}` : "";
 				const branchText = branch
@@ -334,43 +366,68 @@ export function installFooter(
 					percent: contextPercent,
 					contextWindow,
 					style: contextStyle,
-					asciiGauge: iconMode === "ascii",
+					asciiGauge: asciiChrome,
 					sakura: sakuraVisuals,
 					phase,
 					tier,
 				});
 				const contextColor =
 					tier === "error"
-						? config.colors.contextError
+						? componentColor(config, "footer", "contextError")
 						: tier === "warning"
-							? config.colors.contextWarning
-							: config.colors.contextNormal;
+							? componentColor(config, "footer", "contextWarning")
+							: componentColor(config, "footer", "contextNormal");
 				const styledContextLabel = sakuraVisuals
 					? styleSakuraContextSegment(
 							theme,
 							colorSource,
 							contextColor,
 							contextLabel,
-							iconMode === "ascii",
+							asciiChrome,
 							contextStyle,
 						)
 					: renderStyleForSource(theme, colorSource, contextColor, contextLabel);
 				const cacheReadLabel = state.cacheReadLabel
-					? renderStyleForSource(theme, colorSource, config.colors.tokens, state.cacheReadLabel)
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "tokens"),
+							state.cacheReadLabel,
+						)
 					: "";
 				const cacheWriteLabel = state.cacheWriteLabel
-					? renderStyleForSource(theme, colorSource, config.colors.tokens, state.cacheWriteLabel)
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "tokens"),
+							state.cacheWriteLabel,
+						)
 					: "";
 				const subscriptionLabel = state.subscription
-					? renderStyleForSource(theme, colorSource, config.colors.cost, "(sub)")
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "cost"),
+							"(sub)",
+						)
 					: "";
 				const autoCompactionLabel = state.autoCompaction
 					? renderStyleForSource(theme, colorSource, contextColor, "(auto)")
 					: "";
 				const gitColor = (text: string) =>
-					renderStyleForSource(theme, colorSource, config.colors.gitBranch, text);
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "gitBranch"),
+						text,
+					);
 				const gitStatusColor = (text: string) =>
-					renderStyleForSource(theme, colorSource, config.colors.gitStatus, text);
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "gitStatus"),
+						text,
+					);
 				const gitIcon = config.icons.git ? gitColor(config.icons.git) : "";
 				const gitCounts = config.components.footer.styles.starship.segments.gitCounts;
 				const stashLabel =
@@ -431,12 +488,16 @@ export function installFooter(
 							return sanitizeExtensionStatusText(footerModelLabel);
 						case "provider":
 							return sanitizeExtensionStatusText(state.providerLabel);
+						case "thinkingLevel": {
+							const level = sanitizeExtensionStatusText(hooks.getThinkingLevel?.() ?? "");
+							return level.toLowerCase() === "off" ? "" : level;
+						}
 						case "session_duration":
 							return state.sessionStartEpoch
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.sessionDuration,
+										componentColor(config, "footer", "sessionDuration"),
 										buildSessionDurationLabel(state.sessionStartEpoch),
 									)
 								: "";
@@ -444,29 +505,41 @@ export function installFooter(
 							return renderStyleForSource(
 								theme,
 								colorSource,
-								config.colors.username,
+								componentColor(config, "footer", "username"),
 								formatUsernameHostLabel(config.icons.username),
 							);
 						case "os": {
-							const osLabel = formatOsLabel(config.icons.os, iconMode);
-							return sakuraVisuals && iconMode !== "ascii"
+							const osLabel = formatOsLabel(
+								config.icons.os,
+								iconMode,
+								process.platform,
+								config.icons.osOverridden,
+							);
+							return sakuraVisuals && !asciiChrome
 								? renderSakuraGradient(osLabel, (phase + 0.4) % 1)
-								: renderStyleForSource(theme, colorSource, config.colors.os, osLabel);
+								: renderStyleForSource(
+										theme,
+										colorSource,
+										componentColor(config, "footer", "os"),
+										osLabel,
+									);
 						}
 						case "time":
 							return renderStyleForSource(
 								theme,
 								colorSource,
-								config.colors.time,
+								componentColor(config, "footer", "time"),
 								formatTimeLabel(config.icons.time),
 							);
+						case "codex_quota":
+							return quotaLabel;
 						case "context":
 							return styledContextLabel;
 						case "tokens":
 							return renderStyleForSource(
 								theme,
 								colorSource,
-								config.colors.tokens,
+								componentColor(config, "footer", "tokens"),
 								state.tokenLabel,
 							);
 						case "cache_read":
@@ -474,7 +547,12 @@ export function installFooter(
 						case "cache_write":
 							return cacheWriteLabel;
 						case "cost":
-							return renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel);
+							return renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "cost"),
+								state.costLabel,
+							);
 						case "subscription":
 							return subscriptionLabel;
 						case "auto_compaction":
@@ -486,30 +564,40 @@ export function installFooter(
 								colorSource,
 								iconMode,
 								config.icons.package,
-								config.colors.packageVersion,
+								componentColor(config, "footer", "packageVersion"),
 							);
 						case "package_version":
 							return packageVersion?.version
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.packageVersion,
+										componentColor(config, "footer", "packageVersion"),
 										packageVersion.version,
 									)
 								: "";
 						case "sep":
-							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
+							return renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "separator"),
+								" | ",
+							);
 						case "git_commit":
 							return formatGitCommitSegment(
 								theme,
 								commit,
 								config.components.footer.styles.starship.gitCommit,
 								colorSource,
-								config.colors.gitCommit,
+								componentColor(config, "footer", "gitCommit"),
 							);
 						case "git_tag":
 							return config.components.footer.styles.starship.gitCommit.showTag && commit?.tag
-								? renderStyleForSource(theme, colorSource, config.colors.gitCommit, commit.tag)
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										componentColor(config, "footer", "gitCommit"),
+										commit.tag,
+									)
 								: "";
 						case "git_metrics":
 							return formatGitMetricsSegment(
@@ -517,15 +605,15 @@ export function installFooter(
 								state.metrics,
 								config.components.footer.styles.starship.gitMetrics,
 								colorSource,
-								config.colors.gitMetricsAdded,
-								config.colors.gitMetricsDeleted,
+								componentColor(config, "footer", "gitMetricsAdded"),
+								componentColor(config, "footer", "gitMetricsDeleted"),
 							);
 						case "git_added":
 							return state.metrics
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.gitMetricsAdded,
+										componentColor(config, "footer", "gitMetricsAdded"),
 										`+${state.metrics.added}`,
 									)
 								: "";
@@ -534,7 +622,7 @@ export function installFooter(
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.gitMetricsDeleted,
+										componentColor(config, "footer", "gitMetricsDeleted"),
 										`−${state.metrics.deleted}`,
 									)
 								: "";
@@ -561,7 +649,12 @@ export function installFooter(
 									: "";
 							const inner = [shortHash, tag].filter(Boolean).join(" ");
 							branchParts.push(
-								renderStyleForSource(theme, colorSource, config.colors.gitCommit, `(${inner})`),
+								renderStyleForSource(
+									theme,
+									colorSource,
+									componentColor(config, "footer", "gitCommit"),
+									`(${inner})`,
+								),
 							);
 						}
 					}
@@ -578,7 +671,13 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 				const runtimeLabel = config.components.footer.styles.starship.segments.runtime
-					? formatRuntimeSegment(theme, runtime, config.colors.runtimePrefix, colorSource, iconMode)
+					? formatRuntimeSegment(
+							theme,
+							runtime,
+							componentColor(config, "footer", "runtimePrefix"),
+							colorSource,
+							iconMode,
+						)
 					: "";
 				const packageVersionLabel = config.components.footer.styles.starship.segments.packageVersion
 					? formatPackageVersionSegment(
@@ -587,7 +686,7 @@ export function installFooter(
 							colorSource,
 							iconMode,
 							config.icons.package,
-							config.colors.packageVersion,
+							componentColor(config, "footer", "packageVersion"),
 						)
 					: "";
 				// Skip standalone gitCommit when hash is already folded into the
@@ -601,7 +700,7 @@ export function installFooter(
 								commit,
 								config.components.footer.styles.starship.gitCommit,
 								colorSource,
-								config.colors.gitCommit,
+								componentColor(config, "footer", "gitCommit"),
 							)
 						: "";
 				const gitMetricsLabel = config.components.footer.styles.starship.segments.gitMetrics
@@ -610,8 +709,8 @@ export function installFooter(
 							state.metrics,
 							config.components.footer.styles.starship.gitMetrics,
 							colorSource,
-							config.colors.gitMetricsAdded,
-							config.colors.gitMetricsDeleted,
+							componentColor(config, "footer", "gitMetricsAdded"),
+							componentColor(config, "footer", "gitMetricsDeleted"),
 						)
 					: "";
 
@@ -626,7 +725,7 @@ export function installFooter(
 					const time = renderStyleForSource(
 						theme,
 						colorSource,
-						config.colors.sessionDuration,
+						componentColor(config, "footer", "sessionDuration"),
 						timeLabel,
 					);
 					return `${prefix} ${time}`;
@@ -635,15 +734,25 @@ export function installFooter(
 					? renderStyleForSource(
 							theme,
 							colorSource,
-							config.colors.username,
+							componentColor(config, "footer", "username"),
 							formatUsernameHostLabel(config.icons.username),
 						)
 					: "";
-				const osPlain = formatOsLabel(config.icons.os, iconMode);
+				const osPlain = formatOsLabel(
+					config.icons.os,
+					iconMode,
+					process.platform,
+					config.icons.osOverridden,
+				);
 				const osSegment = config.components.footer.styles.starship.segments.os
-					? sakuraVisuals && iconMode !== "ascii"
+					? sakuraVisuals && !asciiChrome
 						? renderSakuraGradient(osPlain, (phase + 0.4) % 1)
-						: renderStyleForSource(theme, colorSource, config.colors.os, osPlain)
+						: renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "os"),
+								osPlain,
+							)
 					: "";
 				const left = [
 					osSegment,
@@ -672,7 +781,7 @@ export function installFooter(
 					? renderStyleForSource(
 							theme,
 							colorSource,
-							config.colors.time,
+							componentColor(config, "footer", "time"),
 							formatTimeLabel(config.icons.time),
 						)
 					: "";
@@ -680,25 +789,78 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 				const builtInTokenLabel = [
-					renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel),
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "tokens"),
+						state.tokenLabel,
+					),
 					cacheReadLabel,
 					cacheWriteLabel,
 				]
 					.filter(Boolean)
 					.join(" ");
 				const builtInCostLabel = [
-					renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel),
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "cost"),
+						state.costLabel,
+					),
 					subscriptionLabel,
 				]
 					.filter(Boolean)
 					.join(" ");
-				const right = [
+				const extensionStatuses = collectExtensionStatusSegments(
+					footerData.getExtensionStatuses(),
+					config,
+				);
+				const renderExtensionStatus = (segment: ExtensionStatusSegment) =>
+					segment.colorMode === "original"
+						? segment.text
+						: renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "extensionStatus"),
+								segment.text,
+							);
+				const extensionLeftSegments = extensionStatuses.left.map(renderExtensionStatus);
+				const extensionMiddleSegments = extensionStatuses.middle.map(renderExtensionStatus);
+				const extensionRightSegments = extensionStatuses.right.map(renderExtensionStatus);
+				const rightParts = [
 					modelInfoSegment,
 					config.components.footer.styles.starship.segments.context ? builtInContextLabel : "",
 					config.components.footer.styles.starship.segments.tokens ? builtInTokenLabel : "",
 					config.components.footer.styles.starship.segments.cost ? builtInCostLabel : "",
 					timeSegment,
-				]
+				];
+				if (styledQuota) {
+					// Measure an internal, same-shape probe so unrelated status text cannot
+					// count as owned quota. Restore text only after the existing layout fits it.
+					const otherText = stripVTControlCharacters(
+						[
+							left,
+							separator,
+							...rightParts,
+							config.components.footer.styles.starship.format,
+							config.components.footer.styles.starship.compactFormat,
+							renderFormatTokens(wideFormatTokens, renderVariable),
+							renderFormatTokens(compactFormatTokens, renderVariable),
+							...extensionLeftSegments,
+							...extensionMiddleSegments,
+							...extensionRightSegments,
+						].join(""),
+					);
+					// An absent letter cannot be synthesized by joining or trimming other zones.
+					const letter = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"].find(
+						(value) => !otherText.includes(value),
+					);
+					// Bounded fail-open fallback if every candidate collides with non-quota text.
+					if (!letter) return renderFooter(width, false);
+					quotaProbe = codexQuotaText(quota).replace(/[a-z0-9]/gi, letter);
+					quotaLabel = styledQuota.replace(codexQuotaText(quota), quotaProbe);
+				}
+				const right = [rightParts[0], quotaLabel, ...rightParts.slice(1)]
 					.filter(Boolean)
 					.join(separator);
 
@@ -716,17 +878,6 @@ export function installFooter(
 					contentRight = stripOrphanSeparators(fmtRight);
 				}
 
-				const extensionStatuses = collectExtensionStatusSegments(
-					footerData.getExtensionStatuses(),
-					config,
-				);
-				const renderExtensionStatus = (segment: ExtensionStatusSegment) =>
-					segment.colorMode === "original"
-						? segment.text
-						: renderStyleForSource(theme, colorSource, config.colors.extensionStatus, segment.text);
-				const extensionLeftSegments = extensionStatuses.left.map(renderExtensionStatus);
-				const extensionMiddleSegments = extensionStatuses.middle.map(renderExtensionStatus);
-				const extensionRightSegments = extensionStatuses.right.map(renderExtensionStatus);
 				const middleSegments = contentMiddle
 					? [contentMiddle, ...extensionMiddleSegments]
 					: extensionMiddleSegments;
@@ -740,11 +891,23 @@ export function installFooter(
 						separator,
 						innerWidth,
 					);
-				const frameRows = (rows: string[]) =>
-					rows.map((row) => {
+				const frameRows = (rows: string[], source = [contentLeft, contentMiddle, contentRight]) => {
+					const framedRows = rows.map((row) => {
 						const framed = width > 2 ? ` ${truncateFooterText(row, width - 2, "")} ` : row;
 						return truncateFooterText(framed, width, "");
 					});
+					if (quotaLabel) {
+						const count = (lines: string[]) =>
+							lines.reduce(
+								(sum, line) => sum + stripVTControlCharacters(line).split(quotaProbe).length - 1,
+								0,
+							);
+						// Recompose without quota if any occurrence was clipped, split, or omitted.
+						if (count(source) !== count(framedRows)) return renderFooter(width, false);
+						return framedRows.map((row) => row.replaceAll(quotaProbe, codexQuotaText(quota)));
+					}
+					return framedRows;
+				};
 
 				if (!config.components.footer.styles.starship.responsive)
 					return frameRows([renderLegacyContent()]);
@@ -770,7 +933,11 @@ export function installFooter(
 					return frameRows([renderLegacyContent()]);
 				}
 
-				const reflowed = reflowFullFooter(fullZones, innerWidth);
+				const reflowed = reflowFullFooter(
+					fullZones,
+					innerWidth,
+					wideFormatTokens.some((token) => token.kind === "fill"),
+				);
 				if (reflowed) return frameRows(reflowed);
 
 				const chunkBudget = compactChunkBudget(innerWidth);
@@ -802,41 +969,56 @@ export function installFooter(
 							return renderVariable(name);
 					}
 				};
-				const compactChunks: Array<{
-					text: string;
-					boundary: "space" | "separator";
-				}> = [];
-				for (const chunk of compileCompactFormat(compactFormatTokens)) {
-					if (chunk.kind === "extensions") {
-						const statuses = [
-							...extensionLeftSegments,
-							...extensionMiddleSegments,
-							...extensionRightSegments,
-						];
-						for (const [index, text] of statuses.entries()) {
-							compactChunks.push({
-								text,
-								boundary: index === 0 ? chunk.boundary : "space",
-							});
+				const renderCompactChunks = (chunks: CompactFormatChunk[]): CompactLayoutChunk[] => {
+					const compactChunks: CompactLayoutChunk[] = [];
+					for (const chunk of chunks) {
+						if (chunk.kind === "extensions") {
+							const statuses = [
+								...extensionLeftSegments,
+								...extensionMiddleSegments,
+								...extensionRightSegments,
+							];
+							for (const [index, text] of statuses.entries()) {
+								compactChunks.push({
+									text,
+									boundary: index === 0 ? chunk.boundary : "space",
+								});
+							}
+							continue;
 						}
-						continue;
+						let rendered = stripOrphanSeparators(
+							renderFormatTokens(chunk.tokens, renderCompactVariable),
+						);
+						const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
+						if (
+							(!quotaLabel || !references.has("codex_quota")) &&
+							["cwd", "session_name", "git_branch"].some((name) => references.has(name))
+						) {
+							rendered = truncateFooterText(rendered, chunkBudget, "…");
+						}
+						if (rendered) compactChunks.push({ text: rendered, boundary: chunk.boundary });
 					}
-					let rendered = stripOrphanSeparators(
-						renderFormatTokens(chunk.tokens, renderCompactVariable),
-					);
-					const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
-					if (["cwd", "session_name", "git_branch"].some((name) => references.has(name))) {
-						rendered = truncateFooterText(rendered, chunkBudget, "…");
-					}
-					if (rendered) compactChunks.push({ text: rendered, boundary: chunk.boundary });
-				}
+					return compactChunks;
+				};
+				const compact = compileCompactFormatSplit(compactFormatTokens);
+				const compactLeft = renderCompactChunks(compact.left);
+				const compactRight = renderCompactChunks(compact.right);
 				return frameRows(
-					packCompactChunks(
-						compactChunks,
-						innerWidth,
-						config.components.footer.styles.starship.compactMaxLines,
-						renderVariable("sep"),
-					),
+					compact.alignRight
+						? packCompactZones(
+								compactLeft,
+								compactRight,
+								innerWidth,
+								config.components.footer.styles.starship.compactMaxLines,
+								renderVariable("sep"),
+							)
+						: packCompactChunks(
+								compactLeft,
+								innerWidth,
+								config.components.footer.styles.starship.compactMaxLines,
+								renderVariable("sep"),
+							),
+					[...compactLeft, ...compactRight].map((chunk) => chunk.text),
 				);
 			},
 		};

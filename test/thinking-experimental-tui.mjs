@@ -23,6 +23,7 @@ const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? [
 	"0.83.0",
 	"0.84.0",
 	"0.84.4",
+	"0.85.1",
 ];
 const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-thinking-tui-"));
@@ -237,6 +238,65 @@ import {
 import { Markdown, SettingsList, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { hasThinkingExperimentalMarkdownIdentity } from "./extensions/zentui/thinking-experimental.ts";
 
+function unwrapMouseRegion(component) {
+	const inner = component?.child;
+	if (
+		typeof component?.onMouse !== "function" ||
+		!inner ||
+		typeof inner !== "object" ||
+		typeof inner.render !== "function"
+	) {
+		return component;
+	}
+	return inner;
+}
+function assertNativeThinkingClicks(component, run = 0) {
+	if (!component.thinkingVisibilityOverrides) return;
+	for (const width of [1, 80]) {
+		for (const hidden of [true, false]) {
+			const region = component.contentContainer.children.filter((child) => typeof child.onMouse === "function")[run];
+			if (!region) throw new Error("thinking lost its native mouse region");
+			const rows = region.render(width);
+			const result = region.handleMouse({ type: "click", button: "left", x: 0, y: 0, width, height: rows.length, shift: false, alt: false, ctrl: false });
+			if (result?.handled !== true || component.thinkingVisibilityOverrides.get(run) !== hidden)
+				throw new Error("native thinking click did not toggle visibility");
+		}
+	}
+}
+
+function assertClicksAfterEmptyThinkingRun() {
+	for (const precedingRun of [false, true]) {
+		const component = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
+		if (!component.thinkingVisibilityOverrides) return;
+		component.updateContent({
+			...fixture,
+			timestamp: fixture.timestamp - (precedingRun ? 2 : 1),
+			content: [
+				...(precedingRun ? [{ type: "thinking", thinking: "# Earlier" }, { type: "text", text: "first separator" }] : []),
+				{ type: "thinking", thinking: " " },
+				{ type: "text", text: "separator" },
+				{ type: "thinking", thinking: "# Visible after empty run" },
+			],
+		}, true);
+		const run = precedingRun ? 1 : 0;
+		const expected = mode === "streaming" ? "FoldedThinkingSection" : "ThinkingStepsRows";
+		const assertDecorated = () => {
+			const region = component.contentContainer.children.filter((child) => typeof child.onMouse === "function")[run];
+			if (unwrapMouseRegion(region)?.constructor.name !== expected)
+				throw new Error("empty-run mouse toggle disabled thinking decoration");
+		};
+		assertDecorated();
+		assertNativeThinkingClicks(component, run);
+		assertDecorated();
+	}
+}
+
+function thinkingMarkdownChild(children, snippet) {
+	return (children ?? [])
+		.map(unwrapMouseRegion)
+		.find((child) => typeof child?.text === "string" && child.text.includes(snippet));
+}
+
 const originalUpdate = AssistantMessageComponent.prototype.updateContent;
 const originalDescriptor = Object.getOwnPropertyDescriptor(AssistantMessageComponent.prototype, "updateContent");
 const forwarded = [];
@@ -247,21 +307,19 @@ function predecessorProbe(...args) {
 Object.defineProperty(AssistantMessageComponent.prototype, "updateContent", { ...originalDescriptor, value: predecessorProbe });
 const nativeUpdate = predecessorProbe;
 const nativeDescriptor = Object.getOwnPropertyDescriptor(AssistantMessageComponent.prototype, "updateContent");
-const settingsInputDescriptor = Object.getOwnPropertyDescriptor(SettingsList.prototype, "handleInput");
-if (process.env.ZENTUI_DIRECT_RAIL === "1" && settingsInputDescriptor?.value) {
-	Object.defineProperty(SettingsList.prototype, "handleInput", {
-		...settingsInputDescriptor,
-		value: function directRailProbeInput(data) {
-			if (data === "\\x1c") {
-				const item = this.items?.[this.selectedIndex];
-				if (item?.currentValue === "Streaming" && item.values?.includes("Rail")) {
-					// Make one real SettingsList activation select Rail without notifying the
-					// controller about the intermediate cyclic Tree value.
-					item.currentValue = "Tree";
-					return Reflect.apply(settingsInputDescriptor.value, this, [" "]);
-				}
+const settingsRenderDescriptor = Object.getOwnPropertyDescriptor(SettingsList.prototype, "render");
+if (process.env.ZENTUI_DIRECT_RAIL === "1" && settingsRenderDescriptor?.value) {
+	Object.defineProperty(SettingsList.prototype, "render", {
+		...settingsRenderDescriptor,
+		value: function directRailProbeRender(...args) {
+			const item = this.items?.find((item) => item.id === "thinkingStepsMode");
+			if (item?.currentValue === "Streaming" && JSON.stringify(item.values) === JSON.stringify(["Streaming", "Tree", "Rail"])) {
+				// Reorder only this fixture's choices so one real panel Space activation
+				// selects Rail directly, without an intermediate Tree controller update.
+				// The panel owns activation; it no longer delegates SettingsList.handleInput.
+				item.values = ["Streaming", "Rail", "Tree"];
 			}
-			return Reflect.apply(settingsInputDescriptor.value, this, [data]);
+			return Reflect.apply(settingsRenderDescriptor.value, this, args);
 		},
 	});
 }
@@ -298,6 +356,7 @@ let stopProbeInput;
 const ownedProbeWidgets = new Set();
 export default function (pi) {
 	pi.on("session_start", (_event, ctx) => {
+		assertClicksAfterEmptyThinkingRun();
 		const setProbeWidget = (key, factory, options) => {
 			ctx.ui.setWidget(key, factory, options);
 			if (factory) ownedProbeWidgets.add(key);
@@ -423,8 +482,9 @@ export default function (pi) {
 					[],
 				);
 				Reflect.apply(originalUpdate, native, [structuralFixture, spec.active]);
-				const nativeMarkdown = (native.contentContainer?.children ?? []).find(
-					(child) => child instanceof Markdown && child.text.includes("PTY label 1"),
+				const nativeMarkdown = thinkingMarkdownChild(
+					native.contentContainer?.children,
+					"PTY label 1",
 				);
 				if (!nativeMarkdown) throw new Error("native structural Markdown shape missing");
 				const selected = mode === "rail" ? labels : labels.slice(-5);
@@ -433,13 +493,14 @@ export default function (pi) {
 					themeName: spec.themeName,
 					active: spec.active,
 					constructors: (tested.contentContainer?.children ?? []).map(
-						(child) => child.constructor.name,
+						(child) => unwrapMouseRegion(child).constructor.name,
 					),
 					comparisons: [20, 80].map((width) =>
 						compareAnsi(tested, nativeMarkdown, selected, spec.active, width),
 					),
 				};
 				structuralGenerations.push(record);
+				assertNativeThinkingClicks(tested);
 			};
 			createGeneration();
 			const hidden = new AssistantMessageComponent(
@@ -513,7 +574,7 @@ export default function (pi) {
 		const nativeLive = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
 		Reflect.apply(originalUpdate, nativeLive, [liveFixture, true]);
 		const nativeChildren = nativeLive.contentContainer?.children ?? [];
-		const nativeMarkdown = nativeChildren.find((child) => child instanceof Markdown && child.text.includes("LIVE rendered row 1"));
+		const nativeMarkdown = thinkingMarkdownChild(nativeChildren, "LIVE rendered row 1");
 		const nativeRows = nativeMarkdown ? cleanRows(nativeMarkdown.render(40)) : [];
 		const nativeScreenRows = cleanRows(nativeLive.render(100));
 		const importedAssistantIdentity = nativeLive.constructor === AssistantMessageComponent;
@@ -531,10 +592,14 @@ export default function (pi) {
 			messageIdentity: call.message === liveFixture,
 		}));
 		const wrapperCalls = testedCalls.length;
-		const signature = (component) => (component.contentContainer?.children ?? []).map((child) => ({
-			constructor: child.constructor.name,
-			text: typeof child.text === "string" ? child.text : undefined,
-		}));
+		assertNativeThinkingClicks(tested);
+		const signature = (component) => (component.contentContainer?.children ?? []).map((child) => {
+			const visible = unwrapMouseRegion(child);
+			return {
+				constructor: visible.constructor.name,
+				text: typeof visible.text === "string" ? visible.text : undefined,
+			};
+		});
 		const collision = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
 		collision.updateContent({
 			...fixture,
@@ -697,8 +762,8 @@ export default function (pi) {
 			}) + "\\n",
 		);
 		Object.defineProperty(AssistantMessageComponent.prototype, "updateContent", originalDescriptor);
-		if (settingsInputDescriptor)
-			Object.defineProperty(SettingsList.prototype, "handleInput", settingsInputDescriptor);
+		if (settingsRenderDescriptor)
+			Object.defineProperty(SettingsList.prototype, "render", settingsRenderDescriptor);
 	});
 }
 `;
@@ -997,11 +1062,17 @@ try:
     transition_sequence = []
     structural_snapshots = []
 
+    def settings_section_ready(label, index, selected_label):
+        tabs = "  Appearance / Editor / User messages / Thinking (Experimental) / Working line / Footer"
+        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/6)"
+        lines = screen.text().split("\n")
+        return header in lines and any(row.startswith("→ " + selected_label + " ") for row in lines)
+
     def switch_thinking_mode(action, expected_mode, expected_active, expected_row):
         os.write(master, b"/zentui\r")
-        pump_until(lambda: "Appearance (1/9)" in screen.text(), "settings open")
+        pump_until(lambda: settings_section_ready("Appearance", 1, "Preset"), "settings open")
         os.write(master, b"\t\t\t")
-        pump_until(lambda: "Thinking (Experimental) (4/9)" in screen.text(), "Thinking settings section")
+        pump_until(lambda: settings_section_ready("Thinking (Experimental)", 4, "Enabled") and "Mode     " in screen.text(), "Thinking settings section")
         os.write(master, b"\x1b[B")
         before = screen.text()
         previous = [value for value in ("Streaming", "Tree", "Rail") if "Mode     " + value in before]
@@ -1038,7 +1109,7 @@ try:
     elif environment.get("ZENTUI_DIRECT_RAIL") == "1":
         pump_until(lambda: os.path.exists(probe_path) and os.path.getsize(probe_path) > 0 and "__ZENTUI_EXPERIMENTAL_TRANSITION_START_52F0A8__" in screen.text() and "__ZENTUI_RESOURCES__ input=1 timer=1" in screen.text(), "direct Rail transition readiness")
         folded = screen.text()
-        rail_transition = switch_thinking_mode(b"\x1c", "Rail", "Rail", "│ • Live transition 6")
+        rail_transition = switch_thinking_mode(b" ", "Rail", "Rail", "│ • Live transition 6")
         os.write(master, b"\x04")
         pump_until(lambda: status is not None, "process exit")
     elif environment.get("ZENTUI_THINKING_MODE") in ("rail", "tree"):

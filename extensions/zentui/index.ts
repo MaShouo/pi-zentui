@@ -11,6 +11,8 @@ import {
 	markAccentRailLayoutEditor,
 	retainAccentRailLayoutPatchInstallation,
 } from "./accent-rail-layout-patch";
+import { CodexQuotaCollector, editorWantsCodexQuota } from "./codex-quota";
+import { componentColor } from "./component-colors";
 import {
 	type AccentRailEditorStyleConfig,
 	type ContextStyle,
@@ -29,6 +31,7 @@ import {
 	type IconMode,
 	loadConfig,
 	type MinimalistConfig,
+	migrateComponentSelections,
 	type PathDisplayConfig,
 	type PolishedCopyFriendlyEditorStyleConfig,
 	type PolishedEditorStyleConfig,
@@ -36,6 +39,7 @@ import {
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
 	saveAccentRailEditorStylePatch,
+	saveComponentColor,
 	saveComponentPreset,
 	saveEditorComponentPatch,
 	saveExtensionStatusColorMode,
@@ -157,6 +161,7 @@ export function activeFooterReferences(config: ZentuiConfig): Set<string> {
 	const references = starship.format
 		? collectFooterFormatReferences(parseFooterFormat(starship.format), FOOTER_FORMAT_ALIASES)
 		: new Set<string>([
+				...(config.components.footer.codexQuota ? ["codex_quota"] : []),
 				...(starship.segments.sessionName ? ["session_name"] : []),
 				...(starship.segments.runtime ? ["runtime"] : []),
 				...(starship.segments.gitCommit ? ["git_commit"] : []),
@@ -199,7 +204,7 @@ export default function (pi: ExtensionAPI) {
 				{
 					...options,
 					colorSource: currentConfig.components.workingLine.colorSource,
-					workingLineHigh: currentConfig.colors.workingLineHigh,
+					workingLineHigh: componentColor(currentConfig, "workingLine", "high"),
 				},
 				theme,
 			),
@@ -285,6 +290,7 @@ export default function (pi: ExtensionAPI) {
 
 	const refresh = () => {
 		if (!sessionLifecycle.isCurrent()) return;
+		codexQuota.reconcile();
 		requestFooterRender?.();
 		requestEditorRender?.();
 	};
@@ -340,6 +346,7 @@ export default function (pi: ExtensionAPI) {
 	const getEditorMeta = (ctx: ExtensionContext) => {
 		const context = getContextSnapshot(ctx);
 		return {
+			codexQuota: getEditorQuota(),
 			modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 			modelId: state.modelId,
 			modelName: state.modelName,
@@ -367,6 +374,38 @@ export default function (pi: ExtensionAPI) {
 		installedFooterKind === "starship" && ownsInstalledFooter()
 			? activeFooterReferences(currentConfig)
 			: new Set<string>();
+
+	const codexQuota = new CodexQuotaCollector(
+		() => {
+			const ctx = activeTuiContext;
+			if (
+				!ctx ||
+				!sessionLifecycle.isCurrent() ||
+				!isTuiContext(ctx) ||
+				ctx.model?.provider !== "openai-codex"
+			)
+				return undefined;
+			const editorDemand =
+				effectiveEditorEnabled() &&
+				ownsInstalledEditorFactory() &&
+				editorWantsCodexQuota(currentConfig);
+			const footerDemand =
+				effectiveFooterStyle() === "starship" &&
+				currentConfig.components.footer.codexQuota &&
+				installedFooterReferences().has("codex_quota");
+			return editorDemand || footerDemand ? ctx : undefined;
+		},
+		() => {
+			if (!sessionLifecycle.isCurrent()) return;
+			requestFooterRender?.();
+			requestEditorRender?.();
+		},
+	);
+	const getEditorQuota = () =>
+		currentConfig.components.editor.codexQuota &&
+		activeTuiContext?.model?.provider === "openai-codex"
+			? codexQuota.get()
+			: undefined;
 
 	type ProjectRefreshTarget = {
 		repository: RepositoryRootRequest;
@@ -607,6 +646,7 @@ export default function (pi: ExtensionAPI) {
 		const nextConfig = save();
 		const after = activeFooterReferences(nextConfig);
 		currentConfig = nextConfig;
+		codexQuota.reconcile();
 		if (sameReferences(before, after)) return;
 		reconcileSessionTimer();
 		reconcileProjectRefresh(ctx, true);
@@ -727,6 +767,7 @@ export default function (pi: ExtensionAPI) {
 		installedEditorFactory = undefined;
 		editorInstallMode = "none";
 		editorInstalled = false;
+		codexQuota.reconcile();
 	};
 
 	const trackZentuiEditorFactory = (factory: EditorFactory): boolean => {
@@ -786,6 +827,7 @@ export default function (pi: ExtensionAPI) {
 					() => getEditorMeta(ctx),
 					getThinkingLevel,
 					() => ({
+						codexQuota: getEditorQuota(),
 						cwd: ctx.cwd,
 						projectRoot: minimalistProjectRoot,
 						branch: state.branch,
@@ -797,6 +839,7 @@ export default function (pi: ExtensionAPI) {
 						thinkingLevel: getThinkingLevel(),
 						contextPercent: getContextPercent(ctx),
 						contextWindow: getContextWindow(ctx),
+						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: ctx.sessionManager.getSessionName() ?? "",
 						agentDurationMs: getAgentDurationMs(),
 						agentActive: agentRunActive,
@@ -825,6 +868,7 @@ export default function (pi: ExtensionAPI) {
 					() => getEditorMeta(ctx),
 					getThinkingLevel,
 					() => ({
+						codexQuota: getEditorQuota(),
 						cwd: ctx.cwd,
 						projectRoot: minimalistProjectRoot,
 						branch: state.branch,
@@ -836,6 +880,7 @@ export default function (pi: ExtensionAPI) {
 						thinkingLevel: getThinkingLevel(),
 						contextPercent: getContextPercent(ctx),
 						contextWindow: getContextWindow(ctx),
+						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: ctx.sessionManager.getSessionName() ?? "",
 						agentDurationMs: getAgentDurationMs(),
 						agentActive: agentRunActive,
@@ -938,6 +983,7 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender = undefined;
 		getActiveExtensionStatuses = () => new Map();
 		stopSessionTimer();
+		codexQuota.reconcile();
 		if (sessionLifecycle.isCurrent()) reconcileProjectRefresh(ctx, true);
 	};
 
@@ -990,7 +1036,9 @@ export default function (pi: ExtensionAPI) {
 				setExtensionStatusesGetter(fn) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
+				getThinkingLevel,
 				getLiveContext: () => liveContext.get(),
+				getCodexQuota: () => codexQuota.get(),
 				getRepositoryRoot: (cwd) => repositoryRoots.rootForCwd(cwd),
 				onDispose: () => clearFooterOwnership(ctx, token),
 			});
@@ -1168,6 +1216,7 @@ export default function (pi: ExtensionAPI) {
 	const cleanupUi = (ctx?: ExtensionContext) => {
 		if (!ctx || !sessionLifecycle.isCurrent()) return;
 		sessionLifecycle.shutdown();
+		codexQuota.stop();
 		stopSessionTimer();
 		resetAgentTimer();
 		stopProjectRefresh();
@@ -1222,6 +1271,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
+		codexQuota.stop();
 		const lifecycleGeneration = sessionLifecycle.start();
 		// A new generation must not expose or route extension segments through the previous
 		// session while asynchronous TUI startup is still pending.
@@ -1292,6 +1342,27 @@ export default function (pi: ExtensionAPI) {
 				applied: !result || result.ok,
 				reason: result && !result.ok ? result.reason : undefined,
 			};
+		},
+		migrateSelections(ctx) {
+			currentConfig = migrateComponentSelections();
+			if (!isTuiContext(ctx)) return;
+			activeTheme = ctx.ui.theme;
+			reconcileEditor(ctx);
+			reconcileUserMessages();
+			reconcileSelectorBorders();
+			reconcileFooter(ctx);
+			workingLine.reconcile(ctx);
+			thinkingExperimental.reconcile();
+			syncFooterState(ctx);
+			reconcileProjectRefresh(ctx);
+			reconcileSessionTimer();
+			reconcileAgentTimer();
+			refresh();
+		},
+		setComponentColor(owner, key, value, ctx) {
+			currentConfig = saveComponentColor(owner, key, value);
+			if (owner === "workingLine") workingLine.reconcile(ctx);
+			refresh();
 		},
 		reconcilePresetEditor(ctx) {
 			if (!isTuiContext(ctx) || !sessionLifecycle.isCurrent()) return { applied: true };
@@ -1478,7 +1549,7 @@ export default function (pi: ExtensionAPI) {
 		interactionMetrics.agentEnd();
 		pauseAgentRun();
 		workingLine.finishAgent(ctx);
-		workingLine.updateMetrics(displayTokens, interactionMetrics.currentThought(), ctx);
+		workingLine.flushMetrics(displayTokens, interactionMetrics.currentThought(), ctx);
 		// Reconcile once more after Pi has persisted the assistant message.
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
@@ -1503,7 +1574,7 @@ export default function (pi: ExtensionAPI) {
 		thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
 		if (result.status === "accepted") {
-			workingLine.updateMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);
+			workingLine.flushMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);
 		}
 		// Pi notifies extensions before persisting a successful message, so retain its live
 		// context until agent_end; accepted failed messages clear immediately instead of showing

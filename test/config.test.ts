@@ -26,6 +26,7 @@ import {
 	getExtensionStatusPlacement,
 	hasUnsupportedComponentStyle,
 	mergeConfig,
+	migrateComponentSelections,
 	saveAccentRailEditorStylePatch,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
@@ -43,6 +44,7 @@ import {
 	saveGitBranchPatch,
 	saveGitCommitPatch,
 	saveGitMetricsPatch,
+	saveIconsModePatch,
 	saveMinimalistEditorStylePatch,
 	saveMinimalistPatch,
 	savePathDisplayPatch,
@@ -92,9 +94,10 @@ function readRaw(path: string): Record<string, any> {
 
 describe("canonical config resolution", () => {
 	it("provides complete canonical defaults and the established palette defaults", () => {
-		const config = mergeConfig({});
+		const config = mergeConfig({}, {});
 		expect(config.components).toEqual({
 			editor: {
+				codexQuota: false,
 				enabled: true,
 				style: "opencode",
 				colorSource: "theme",
@@ -122,6 +125,7 @@ describe("canonical config resolution", () => {
 						showSessionName: true,
 						showTimer: true,
 						showCost: true,
+						showCacheHit: false,
 						showGit: true,
 						contextThresholds: { warning: 70, error: 90 },
 					},
@@ -151,6 +155,7 @@ describe("canonical config resolution", () => {
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 			footer: {
+				codexQuota: false,
 				style: "starship",
 				colorSource: "theme",
 				modelLabel: "id",
@@ -178,7 +183,7 @@ describe("canonical config resolution", () => {
 			},
 		});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
-		expect(config.icons.cacheHit).toBe("󰆼");
+		expect(config.icons).toMatchObject({ mode: "auto", effectiveMode: "ascii", cacheHit: "c" });
 		expect(config.colors).toEqual(defaultConfig.colors);
 		expect(defaultConfig.components).toEqual(config.components);
 	});
@@ -396,6 +401,7 @@ describe("canonical config resolution", () => {
 							showSessionName: false,
 							showTimer: false,
 							showCost: false,
+							showCacheHit: true,
 							showGit: false,
 						},
 					},
@@ -407,6 +413,7 @@ describe("canonical config resolution", () => {
 			showSessionName: false,
 			showTimer: false,
 			showCost: false,
+			showCacheHit: true,
 			showGit: false,
 		});
 
@@ -417,6 +424,7 @@ describe("canonical config resolution", () => {
 					showSessionName: false,
 					showTimer: false,
 					showCost: false,
+					showCacheHit: true,
 					showGit: false,
 				},
 			},
@@ -428,6 +436,7 @@ describe("canonical config resolution", () => {
 							showSessionName: "yes",
 							showTimer: null,
 							showCost: 0,
+							showCacheHit: "yes",
 							showGit: "no",
 						},
 					},
@@ -1246,7 +1255,8 @@ describe("canonical snapshot persistence", () => {
 				},
 			},
 			(path) => {
-				const config = saveEditorComponentPatch({ enabled: true }, path);
+				saveEditorComponentPatch({ enabled: true }, path);
+				const config = migrateComponentSelections(path);
 				const raw = readRaw(path);
 				expect(Object.keys(raw.components)).toEqual(
 					expect.arrayContaining([
@@ -1279,9 +1289,10 @@ describe("canonical snapshot persistence", () => {
 		);
 	});
 
-	it("prevents legacy edits from recoupling surfaces after the first save", () => {
+	it("prevents legacy edits from recoupling surfaces after explicit migration", () => {
 		withConfig({ features: { editor: false, copyFriendly: true } }, (path) => {
 			saveEditorComponentPatch({ enabled: true }, path);
+			migrateComponentSelections(path);
 			const raw = readRaw(path);
 			expect(raw.components.editor.enabled).toBe(true);
 			expect(raw.components.userMessages.enabled).toBe(false);
@@ -1308,7 +1319,10 @@ describe("canonical snapshot persistence", () => {
 				path,
 			);
 			saveAccentRailEditorStylePatch({ transparent: true }, path);
-			saveMinimalistEditorStylePatch({ showGit: false, contextGauge: true }, path);
+			saveMinimalistEditorStylePatch(
+				{ showGit: false, contextGauge: true, showCacheHit: true },
+				path,
+			);
 			saveUserMessagesComponentPatch({ enabled: false, colorSource: "terminal" }, path);
 			saveSelectorBordersComponentPatch({ enabled: false, colorSource: "terminal" }, path);
 			saveFooterComponentPatch({ style: "native", modelLabel: "name" }, path);
@@ -1331,6 +1345,7 @@ describe("canonical snapshot persistence", () => {
 			expect(config.components.editor.styles.minimalist).toMatchObject({
 				showGit: false,
 				contextGauge: true,
+				showCacheHit: true,
 			});
 			expect(config.components.userMessages).toMatchObject({
 				enabled: false,
@@ -1458,9 +1473,10 @@ describe("compatibility saver recipes", () => {
 		);
 	});
 
-	it("materializes a complete snapshot when a compatibility saver creates the file", () => {
+	it("materializes a complete snapshot on explicit migration after a compatibility save", () => {
 		withConfig(undefined, (path) => {
 			saveUiFeaturesPatch({ editor: false }, path);
+			migrateComponentSelections(path);
 			const raw = readRaw(path);
 			expect(Object.keys(raw)).toEqual(["components"]);
 			expect(Object.keys(raw.components).sort()).toEqual([
@@ -1481,9 +1497,9 @@ describe("compatibility saver recipes", () => {
 
 describe("mergeConfig", () => {
 	it("defaults project refresh polling to 30 seconds and Starship styles", () => {
-		const config = mergeConfig({});
+		const config = mergeConfig({}, {});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
-		expect(config.icons.cacheHit).toBe("󰆼");
+		expect(config.icons).toMatchObject({ mode: "auto", effectiveMode: "ascii", cacheHit: "c" });
 		expect(config.icons.editorPrompt).toBe("");
 		expect(config.colors.gitBranch).toBe("bold purple");
 		expect(config.colors.packageVersion).toBe("208");
@@ -1534,6 +1550,10 @@ describe("mergeConfig", () => {
 		});
 	});
 
+	it("registers the canonical thinking level variable", () => {
+		expect(FOOTER_FORMAT_VARIABLES).toContain("thinkingLevel");
+	});
+
 	it("registers the canonical telemetry variables without aliases", () => {
 		expect(FOOTER_FORMAT_VARIABLES).toEqual(
 			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),
@@ -1554,7 +1574,7 @@ describe("mergeConfig", () => {
 
 	it("defaults and normalizes responsive footer settings", () => {
 		expect(DEFAULT_COMPACT_FOOTER_FORMAT).toBe(
-			"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
+			"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)",
 		);
 		expect(mergeConfig({})).toMatchObject({
 			responsiveFooter: true,
@@ -1940,13 +1960,32 @@ describe("mergeConfig", () => {
 		}
 	});
 
-	it("defaults icon mode to auto and accepts nerd/ascii", () => {
-		expect(mergeConfig({}).icons.mode).toBe("auto");
-		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.mode).toBe("ascii");
-		expect(mergeConfig({ icons: { mode: "nerd" } }).icons.mode).toBe("nerd");
-		expect(mergeConfig({ icons: { mode: "emoji" } }).icons.mode).toBe("auto");
-		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.cwd).toBe("");
-		expect(mergeConfig({ icons: { mode: "ascii", cwd: "DIR" } }).icons.cwd).toBe("DIR");
+	it("keeps Auto canonical while deriving its runtime icon mode", () => {
+		expect(mergeConfig({}, {}).icons).toMatchObject({ mode: "auto", effectiveMode: "ascii" });
+		expect(mergeConfig({}, { TERM_PROGRAM: "ghostty" }).icons).toMatchObject({
+			mode: "auto",
+			effectiveMode: "nerd",
+		});
+		expect(
+			mergeConfig({ icons: { mode: "ascii" } }, { TERM_PROGRAM: "ghostty" }).icons,
+		).toMatchObject({ mode: "ascii", effectiveMode: "ascii" });
+		expect(
+			mergeConfig({ icons: { mode: "nerd" } }, { ZENTUI_NERD_FONTS: "0" }).icons,
+		).toMatchObject({ mode: "nerd", effectiveMode: "nerd" });
+		expect(mergeConfig({ icons: { mode: "emoji" } }, {}).icons.mode).toBe("auto");
+		expect(mergeConfig({ icons: { mode: "ascii", cwd: "DIR" } }, {}).icons.cwd).toBe("DIR");
+	});
+
+	it("persists Auto intent without serializing an environment-specific result", () => {
+		withConfig({ icons: { mode: "auto", git: "CUSTOM" }, unknown: true }, (path) => {
+			const saved = saveIconsModePatch("auto", path);
+			expect(saved.icons.mode).toBe("auto");
+			expect(readRaw(path)).toMatchObject({
+				icons: { mode: "auto", git: "CUSTOM" },
+				unknown: true,
+			});
+			expect(readRaw(path).icons).not.toHaveProperty("effectiveMode");
+		});
 	});
 
 	it("accepts Starship colors and old color key aliases", () => {
@@ -2242,7 +2281,9 @@ describe("mergeConfig", () => {
 			expect(raw.colors.cost).toBe("success");
 			expect(raw.colorSources).toEqual({ editor: "terminal" });
 			expect(raw.components.footer.colorSource).toBe("terminal");
-			expect(raw.components.editor.colorSource).toBe("terminal");
+			expect(raw.components.editor).toBeUndefined();
+			migrateComponentSelections(path);
+			expect(readRaw(path).components.editor.colorSource).toBe("terminal");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -2302,8 +2343,10 @@ describe("mergeConfig", () => {
 			});
 			expect(Object.keys(raw)).toEqual(["components"]);
 			expect(raw.components.footer.colorSource).toBe("terminal");
-			expect(raw.components.editor.colorSource).toBe("theme");
-			expect(raw.components.userMessages.colorSource).toBe("theme");
+			expect(Object.keys(raw.components)).toEqual(["footer"]);
+			migrateComponentSelections(path);
+			expect(readRaw(path).components.editor.colorSource).toBe("theme");
+			expect(readRaw(path).components.userMessages.colorSource).toBe("theme");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

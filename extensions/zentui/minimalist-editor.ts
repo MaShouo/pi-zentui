@@ -1,11 +1,16 @@
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { CodexQuota } from "./codex-quota";
+import { renderCodexQuota } from "./codex-quota-display";
+import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
+	bashModeLabel,
 	buildContextGauge,
 	contextColorTier,
+	formatCacheHitRate,
 	formatCount,
 	formatCwdLabel,
 	formatElapsedDuration,
@@ -38,6 +43,7 @@ const MINIMALIST_ADAPTIVE_TERMINAL_THINKING_FALLBACKS: Record<string, string> = 
 const MINIMALIST_BRANCH_FALLBACK = { theme: "bold syntaxKeyword", terminal: "bold blue" };
 
 export type MinimalistEditorMetadata = {
+	codexQuota?: CodexQuota;
 	cwd: string;
 	projectRoot?: string;
 	branch?: string;
@@ -49,6 +55,7 @@ export type MinimalistEditorMetadata = {
 	thinkingLevel?: string;
 	contextPercent?: number;
 	contextWindow?: number;
+	cacheHitRate?: number;
 	sessionName?: string;
 	agentDurationMs?: number;
 	agentActive?: boolean;
@@ -107,23 +114,38 @@ function joinStyled(parts: string[], separator: string): string {
 function thinkingStyle(config: ZentuiConfig, level: string): string | undefined {
 	switch (level.toLowerCase()) {
 		case "minimal":
-			return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMinimal") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "low":
-			return config.colors.editorThinkingLow ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingLow") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "medium":
-			return config.colors.editorThinkingMedium ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMedium") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "high":
-			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingHigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "xhigh":
-			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "max":
 			return (
-				config.colors.editorThinkingMax ??
-				config.colors.editorThinkingXhigh ??
-				config.colors.editorThinking
+				componentColor(config, "editor", "thinkingMax") ??
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
 			);
 		default:
-			return config.colors.editorThinking;
+			return componentColor(config, "editor", "thinking");
 	}
 }
 
@@ -135,8 +157,7 @@ function renderTopLeft(
 	includeSessionName = true,
 ): string {
 	const source = config.components.editor.colorSource;
-	const trimmed = inputText.trimStart();
-	const bashMode = trimmed.startsWith("!!") ? "no-context" : trimmed.startsWith("!") ? "shell" : "";
+	const bashMode = bashModeLabel(inputText);
 	const parts: string[] = [];
 	if (bashMode) {
 		parts.push(
@@ -155,7 +176,7 @@ function renderTopLeft(
 				? renderStyleForSourceOrFallback(
 						uiTheme,
 						source,
-						config.colors.sessionDuration,
+						componentColor(config, "editor", "sessionDuration"),
 						EDITOR_ACCENT_FALLBACK,
 						duration,
 					)
@@ -166,7 +187,14 @@ function renderTopLeft(
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
 		: "";
 	if (config.components.editor.styles.minimalist.showSessionName && sessionName) {
-		parts.push(renderStyleForSource(uiTheme, source, config.colors.sessionName, sessionName));
+		parts.push(
+			renderStyleForSource(
+				uiTheme,
+				source,
+				componentColor(config, "editor", "sessionName"),
+				sessionName,
+			),
+		);
 	}
 	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " · "));
 }
@@ -178,6 +206,7 @@ function renderTopRight(
 	availableWidth: number,
 	renderBorder: (text: string) => string,
 	renderThinking: (text: string) => string,
+	fit = false,
 ): string {
 	const source = config.components.editor.colorSource;
 	const parts: string[] = [];
@@ -187,7 +216,9 @@ function renderTopRight(
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";
 	if (cost) {
-		parts.push(renderStyleForSource(uiTheme, source, config.colors.cost, cost));
+		parts.push(
+			renderStyleForSource(uiTheme, source, componentColor(config, "editor", "cost"), cost),
+		);
 	}
 	const model = sanitizeEditorMetadataText(metadata.modelLabel ?? "");
 	if (model) {
@@ -195,7 +226,7 @@ function renderTopRight(
 			renderStyleForSourceOrFallback(
 				uiTheme,
 				source,
-				config.colors.editorModel,
+				componentColor(config, "editor", "model"),
 				MINIMALIST_MODEL_FALLBACK,
 				model,
 			),
@@ -213,10 +244,10 @@ function renderTopRight(
 		);
 		const style =
 			tier === "error"
-				? config.colors.contextError
+				? componentColor(config, "editor", "contextError")
 				: tier === "warning"
-					? config.colors.contextWarning
-					: config.colors.contextNormal;
+					? componentColor(config, "editor", "contextWarning")
+					: componentColor(config, "editor", "contextNormal");
 		const total =
 			config.components.editor.styles.minimalist.contextFormat === "percent-total" &&
 			metadata.contextWindow !== undefined &&
@@ -228,7 +259,11 @@ function renderTopRight(
 		let context = renderStyleForSource(uiTheme, source, style, text);
 		if (config.components.editor.styles.minimalist.contextGauge) {
 			for (const gaugeWidth of [5, 3]) {
-				const gauge = `[${buildContextGauge(percent, gaugeWidth, config.icons.mode === "ascii")}] ${text}`;
+				const gauge = `[${buildContextGauge(
+					percent,
+					gaugeWidth,
+					config.icons.effectiveMode === "ascii",
+				)}] ${text}`;
 				const styledGauge = renderStyleForSource(uiTheme, source, style, gauge);
 				const candidate = joinParts([...parts, styledGauge]);
 				if (visibleWidth(candidate) <= availableWidth) {
@@ -237,9 +272,31 @@ function renderTopRight(
 				}
 			}
 		}
+		if (fit && visibleWidth(joinParts([...parts, context])) > availableWidth) {
+			// Descriptive adornments yield before the context percentage. Keep the
+			// established cost/model/thinking order in the remaining prefix budget.
+			context = renderStyleForSource(uiTheme, source, style, `${percent}%`);
+			const contextWidth = visibleWidth(context);
+			if (contextWidth > availableWidth) return "";
+			const prefixBudget = Math.max(0, availableWidth - contextWidth - 3);
+			const prefix = prefixBudget > 0 ? truncateToWidth(joinParts(parts), prefixBudget, "…") : "";
+			return joinParts([...(prefix ? [prefix] : []), context]);
+		}
 		parts.push(context);
 	}
-	return joinParts(parts);
+	const cacheHit =
+		config.components.editor.styles.minimalist.showCacheHit &&
+		metadata.cacheHitRate !== undefined &&
+		Number.isFinite(metadata.cacheHitRate)
+			? safeThemeFg(uiTheme, "muted", `Cache ${formatCacheHitRate(metadata.cacheHitRate)}`)
+			: "";
+	if (cacheHit && (!fit || visibleWidth(joinParts([...parts, cacheHit])) <= availableWidth)) {
+		parts.push(cacheHit);
+	}
+	const quota = renderCodexQuota(metadata.codexQuota, uiTheme, config, "editor");
+	if (quota && visibleWidth(joinParts([...parts, quota])) <= availableWidth) parts.push(quota);
+	const joined = joinParts(parts);
+	return fit ? truncateToWidth(joined, availableWidth, "…") : joined;
 }
 
 function renderBottomLeft(
@@ -255,14 +312,16 @@ function renderBottomLeft(
 				renderStyleForSourceOrFallback(
 					uiTheme,
 					source,
-					config.colors.editorGitBranch,
+					componentColor(config, "editor", "gitBranch"),
 					MINIMALIST_BRANCH_FALLBACK,
 					branch,
 				),
 			]
 		: [];
 	if (metadata.dirty) {
-		parts.push(renderStyleForSource(uiTheme, source, config.colors.gitStatus, "*"));
+		parts.push(
+			renderStyleForSource(uiTheme, source, componentColor(config, "editor", "gitStatus"), "*"),
+		);
 	}
 	if ((metadata.ahead ?? 0) > 0) {
 		parts.push(safeThemeFg(uiTheme, "success", `↑${metadata.ahead}`));
@@ -295,7 +354,12 @@ function renderBottomRight(
 ): string {
 	const cwd = sanitizeEditorMetadataText(minimalistCwdLabel(metadata, config));
 	return cwd
-		? renderStyleForSource(uiTheme, config.components.editor.colorSource, config.colors.cwd, cwd)
+		? renderStyleForSource(
+				uiTheme,
+				config.components.editor.colorSource,
+				componentColor(config, "editor", "cwd"),
+				cwd,
+			)
 		: "";
 }
 
@@ -304,6 +368,7 @@ function renderLabeledBorder(options: {
 	left: string;
 	leftFallbacks?: string[];
 	right: string;
+	fitRight?: (width: number) => string;
 	leftCorner: string;
 	rightCorner: string;
 	renderBorder: (text: string) => string;
@@ -332,7 +397,10 @@ function renderLabeledBorder(options: {
 			}
 		}
 		left = leftBudget > 0 ? truncateToWidth(left, leftBudget, "…") : "";
-		right = rightBudget > 0 ? truncateToWidth(right, rightBudget, "…") : "";
+		right =
+			rightBudget > 0
+				? (options.fitRight?.(rightBudget) ?? truncateToWidth(right, rightBudget, "…"))
+				: "";
 		return leftBudget < leftNatural;
 	};
 	let leftTruncated = fitLabels();
@@ -382,12 +450,12 @@ export function renderMinimalistFrame({
 	const thinking = sanitizeEditorMetadataText(metadata.thinkingLevel ?? "");
 	const activeThinking = thinking && thinking.toLowerCase() !== "off" ? thinking : "";
 	const renderStaticBorder = (text: string) =>
-		isSakuraMacaronVisuals(config.colors.editorBorder, uiTheme)
+		isSakuraMacaronVisuals(componentColor(config, "editor", "border"), uiTheme)
 			? renderSakuraFrameGradient(text)
 			: renderStyleForSourceOrFallback(
 					uiTheme,
 					source,
-					config.colors.editorBorder,
+					componentColor(config, "editor", "border"),
 					EDITOR_BORDER_FALLBACK,
 					text,
 				);
@@ -439,6 +507,8 @@ export function renderMinimalistFrame({
 		left: topLeft,
 		leftFallbacks: topFallbacks,
 		right: renderTopRight(metadata, uiTheme, config, topRightBudget, renderBorder, renderThinking),
+		fitRight: (budget) =>
+			renderTopRight(metadata, uiTheme, config, budget, renderBorder, renderThinking, true),
 		leftCorner: "╭",
 		rightCorner: "╮",
 		renderBorder,

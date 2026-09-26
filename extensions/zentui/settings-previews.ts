@@ -93,7 +93,10 @@ export function renderEditorSettingsPreview(
 	const safeConfig = previewConfig(config);
 	const editor = safeConfig.components.editor;
 	const borderColor = adaptiveBorder(theme);
-	const modelLabel = editor.modelLabel === "name" ? "Sonnet 4" : "sonnet-4";
+	const modelId = editor.codexQuota ? "gpt-5.4" : "sonnet-4";
+	const modelName = editor.codexQuota ? "GPT-5.4" : "Sonnet 4";
+	const modelLabel = editor.modelLabel === "name" ? modelName : modelId;
+	const codexQuota = editor.codexQuota ? { fiveHour: 80, week: 60 } : undefined;
 	const editorLines = [EDITOR_PREVIEW_INPUT];
 	const autocompleteLines = [
 		safeThemeFg(theme, "accent", "→ settings     Open settings"),
@@ -104,6 +107,7 @@ export function renderEditorSettingsPreview(
 	let frame: string[];
 	if (editor.style === "accent-rail") {
 		frame = renderAccentRailEditorFrame({
+			codexQuota,
 			width: previewWidth,
 			editorLines,
 			autocompleteLines,
@@ -118,6 +122,7 @@ export function renderEditorSettingsPreview(
 			viewport,
 			inputText: EDITOR_PREVIEW_INPUT,
 			metadata: {
+				codexQuota,
 				cwd: "/workspace/zentui/src",
 				projectRoot: "/workspace/zentui",
 				branch: "feat/settings-previews",
@@ -129,6 +134,7 @@ export function renderEditorSettingsPreview(
 				thinkingLevel: "high",
 				contextPercent: 75,
 				contextWindow: 372_000,
+				cacheHitRate: 98.2,
 				sessionName: "Preview",
 				agentDurationMs: 12_000,
 				agentActive: true,
@@ -146,10 +152,11 @@ export function renderEditorSettingsPreview(
 			uiTheme: theme,
 			config: safeConfig,
 			modelMeta: {
+				codexQuota,
 				modelLabel,
-				modelId: "sonnet-4",
-				modelName: "Sonnet 4",
-				providerLabel: "Anthropic",
+				modelId,
+				modelName,
+				providerLabel: editor.codexQuota ? "OpenAI Codex" : "Anthropic",
 				sessionName: "Preview",
 			},
 			thinkingLevel: "high",

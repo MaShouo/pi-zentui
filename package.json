@@ -1,7 +1,7 @@
 {
 	"name": "pi-sakura-cyberdeck",
 	"version": "2.2.0",
-	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.23.0.",
+	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.25.1.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
@@ -24,13 +24,15 @@
 		"NOTICE",
 		"README.md",
 		"LICENSE",
-		"docs/configuration.md"
+		"docs/configuration.md",
+		"docs/footer-format.md"
 	],
 	"scripts": {
 		"check": "node scripts/check.mjs",
 		"lint": "biome check .",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run --testTimeout=30000",
+		"test:behavior-compatibility": "node test/behavior-compatibility.mjs",
 		"test:thinking-experimental-tui": "node test/thinking-experimental-tui.mjs",
 		"test:thinking-experimental-diagnostics": "node test/thinking-experimental-loader-diagnostics.mjs",
 		"pi:dev": "${PI_BIN:-/opt/homebrew/bin/pi} --no-extensions -e ./",

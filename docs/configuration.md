@@ -4,27 +4,75 @@
 
 Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing or invalid known values fall back to defaults. Unknown fields are ignored at runtime but preserved on disk by component save operations where they are user-owned migration or future-style data.
 
+## Start with minimal overrides
+
+Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer; Working line and Thinking (Experimental) are disabled.
+
+Change just one surface:
+
+```json
+{
+  "components": {
+    "footer": { "colors": { "cwd": "bold green" } }
+  }
+}
+```
+
+To adopt only User messages while leaving the other default-enabled surfaces native or predecessor-controlled:
+
+```json
+{
+  "components": {
+    "editor": { "enabled": false },
+    "userMessages": { "enabled": true, "style": "framed" },
+    "selectorBorders": { "enabled": false },
+    "footer": { "style": "native" }
+  }
+}
+```
+
+Native releases Zentui's ownership; Hidden deliberately installs a zero-row Footer. Disabling a component preserves its dormant preferences. See [color overrides and inheritance](#component-color-overrides-and-inheritance) and [explicit migration](#compatibility-and-migration) before snapshotting legacy settings.
+
 ## `/zentui` settings
 
-The interactive `/zentui` menu is split into nine component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections:
+The interactive `/zentui` menu is split into six component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
 
-1. **Appearance** — component Preset; selector-border enablement, style, and colors; icon mode.
-2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
+1. **Appearance** — component Preset; selector-border enablement, informational fixed style, and colors; icon mode.
+2. **Editor** — enablement, style, colors, Codex quota, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
 5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
-6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
-7. **Segments** — visibility toggles for non-Git Starship segments.
-8. **Git** — Starship Git segment and probe controls.
-9. **Extensions** — Starship extension-status placement and color controls for active keys.
+6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
+   - **Segments →** — visibility toggles for non-Git Starship segments.
+   - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
+   - **Extension statuses →** — Starship placement and color controls for active published keyed Footer statuses; not extension management or Working line integrations.
 
-Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer-specific rows are shown only while Starship is selected, while Segments, Git, and Extensions remain available for preconfiguration under every Footer style.
+The three Footer child entries appear only with Starship selected. Child headings show their scope (for example, **Footer > Git**). The configured cancel key returns to Footer focused on the originating child entry; at the top level it still closes settings. `Tab` / `Shift+Tab` remain available on child pages to move to the next / previous top-level section relative to Footer. Visiting or backing out of a page does not save settings or change component ownership.
 
-Free-form values such as custom formats, Opencode metadata formats, raw colors/styles, and inactive extension keys remain JSON-only. Working-line speed accepts validated custom milliseconds in `/zentui`.
+Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Starship-specific rows are shown only while Starship is selected. Footer Color overrides remain available for preconfiguration under every Footer style and say **Saved for Starship** when inactive. Native and Hidden hide the three child entries without changing their saved preferences. Other dormant choices explain their scope without rewriting values. Auto icons assume a Nerd Font without detecting one; ASCII replaces icons only, not all borders or UI glyphs.
 
-Useful slash-command shortcuts:
+Free-form values such as custom formats, Opencode metadata formats, and inactive extension keys remain JSON-only. Component raw colors are editable through each component’s **Color overrides** action, with explicit **Reset / inherit**. Working-line speed accepts validated custom milliseconds in `/zentui`.
+
+Every section and Footer child page has a direct route and completion:
 
 ```text
+/zentui appearance
+/zentui editor
+/zentui user-messages
+/zentui thinking
+/zentui working-line
+/zentui footer
+/zentui segments
+/zentui git
+/zentui extensions
+```
+
+`/zentui segments`, `/zentui git`, and `/zentui extensions` open the corresponding **Footer > …** child page when Starship is active. Under Native or Hidden, they instead open Footer with a requires-Starship explanation; they do not show active child controls, enable Starship, or write configuration.
+
+`messages` and `thinking-steps` remain section aliases; Footer also accepts the aliases below. Useful slash-command shortcuts:
+
+```text
+/zentui migrate
 /zentui editor enable
 /zentui editor disable
 /zentui editor toggle
@@ -85,7 +133,10 @@ URL when an extension supplies only a label.
 
 ## Complete default configuration
 
-Copy this example and change only the values you need. Optional editor source-aware overrides such as `editorRail`, `editorGitBranch`, and `editorThinkingMax` are intentionally omitted.
+Reference only—not a starter file. Prefer the minimal overrides above. Optional editor source-aware overrides such as `editorRail`, `editorGitBranch`, and `editorThinkingMax` are intentionally omitted.
+
+<details>
+<summary>Expand the complete defaults</summary>
 
 ```json
 {
@@ -93,6 +144,7 @@ Copy this example and change only the values you need. Optional editor source-aw
   "components": {
     "editor": {
       "enabled": true,
+      "codexQuota": false,
       "style": "opencode",
       "colorSource": "theme",
       "borderColorMode": "static",
@@ -100,11 +152,11 @@ Copy this example and change only the values you need. Optional editor source-aw
       "viewportIndicators": true,
       "styles": {
         "opencode": {
-          "metadataFormat": "$model  $provider(  $thinking)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "opencode-copy-friendly": {
-          "metadataFormat": "$model  $provider(  $thinking)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "accent-rail": {
@@ -119,6 +171,7 @@ Copy this example and change only the values you need. Optional editor source-aw
           "showSessionName": true,
           "showTimer": true,
           "showCost": true,
+          "showCacheHit": false,
           "showGit": true,
           "contextThresholds": {
             "warning": 70,
@@ -186,13 +239,14 @@ Copy this example and change only the values you need. Optional editor source-aw
     },
     "footer": {
       "style": "starship",
+      "codexQuota": false,
       "colorSource": "theme",
       "modelLabel": "id",
       "styles": {
         "starship": {
           "format": "",
           "responsive": true,
-          "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
+          "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)",
           "compactMaxLines": 2,
           "separator": "pipe",
           "contextStyle": "text",
@@ -303,21 +357,58 @@ Copy this example and change only the values you need. Optional editor source-aw
 }
 ```
 
+</details>
+
 ## Core configuration
 
 - Style values accept Starship/terminal strings such as `bold purple`, `fg:202`, `#89b`, `#89b4fa`, and `bg:blue fg:bright-green`, or Pi theme tokens such as `accent`, `borderMuted`, and `thinkingHigh`. Short `#rgb` values expand to `#rrggbb`.
-- `projectRefreshIntervalMs` controls project-status polling. `0` disables polling. Values `1..4999` clamp to the five-second minimum; invalid or non-finite values use `30000`.
+- `projectRefreshIntervalMs` controls project-status polling, not opt-in quota refresh. `0` disables project polling. Values `1..4999` clamp to the five-second minimum; invalid or non-finite values use `30000`.
 - `components.editor` owns Editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four style configurations.
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
 - `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
-- All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, and 0.84.4. The decorator also duck-types Pi 0.85 thinking `MouseRegion` wrappers; Streaming temporarily clears native per-run visibility overrides so fold/Ctrl+T/left-click expand keep working, while Rail and Tree still follow Pi's hidden state. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
+- All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, 0.84.4, and 0.85.1. The decorator also duck-types Pi 0.85 thinking `MouseRegion` wrappers; Streaming temporarily clears native per-run visibility overrides so fold/Ctrl+T/left-click expand keep working, while Rail and Tree still follow Pi's hidden state. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden installs an empty component with zero rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
 - Active third-party statuses from `ctx.ui.setStatus()` can be placed left, middle, or right, hidden per key, and assigned independent color modes.
 - The shown `editor*` colors match the default `theme` source. Omit them to preserve source-aware defaults when switching between `theme` and `terminal`.
+
+### Codex account quota
+
+`components.editor.codexQuota` and `components.footer.codexQuota` are independent booleans, both `false` by default. Enable either from its **Codex quota** settings row, or merge these leaves into your existing file:
+
+```json
+{
+  "components": {
+    "editor": { "codexQuota": true },
+    "footer": { "codexQuota": false }
+  }
+}
+```
+
+This example enables only Editor quota, without changing any component's style or enablement. Minimalist with Hidden Footer is supported. Footer quota requires Starship. Neither toggle enables another surface or changes a color source, and presets preserve both choices.
+
+- Only the exact active provider `openai-codex` with native Codex API and ChatGPT-origin model/provider routing is eligible, not `openai`, proxies (including same-ID overrides), or similarly named models. Resolved-auth routing overrides must also use the ChatGPT origin. Use Pi's existing ChatGPT/Codex login; API billing balances are not supported.
+- Values are **remaining**, rounded percentages: `5h 80% | week 60%`. Only exact 18,000-second and 604,800-second windows are recognized, independently of response ordering. Other durations stay unknown rather than acquiring incorrect labels.
+- `--` means unavailable, including a missing window, unsupported auth API/account, or no successful request. `0%` means exhausted. A newer partial response replaces the previous snapshot completely.
+- Transient HTTP/network/schema failures and refresh deadlines (including slow authentication lookups) retain successful values with a textual `stale` warning. Values older than two minutes also become stale. Missing, failed, or rejected authentication clears the cache, as do account changes, provider changes, loss of all consumers, and teardown. Credentials and quota are never persisted by Zentui.
+- One shared poller refreshes roughly every minute, including idle time, only in a TUI session with an owned, enabled eligible consumer. Both toggles off means no quota auth lookup or request. Editor templates without `$codex_quota` do not create demand; Footer considers both wide and responsive compact paths. HTTP 429 can delay the next request via `Retry-After`. Each refresh has a ten-second deadline; late uncancelable auth results are ignored.
+- Opencode variants include quota conditionally in their shipped metadata defaults. Minimalist adds it beside context when space allows. Accent Rail adds one editor-owned row beneath input and viewport indicators, before autocomplete. At narrow widths quota is omitted as a unit rather than clipping away labels or `stale`. Input text and Working line are unaffected.
+- Quota reuses the selected component's `contextNormal`, `contextWarning`, and `contextError` color roles. Remaining quota at or below 50% uses warning, at or below 20% uses error; stale values use at least warning. Editor never borrows Footer overrides. Settings previews use synthetic values only.
+
+**Custom templates remain authoritative.** Saved nonempty formats, including copies of old defaults, are never rewritten or augmented outside the template. Add `(  $codex_quota)` to either Opencode variant's `metadataFormat`, `($sep$codex_quota)` to a Footer wide `format`, or `$wrap_sep($codex_quota)` to `compactFormat`. Tokens remain empty when the corresponding quota toggle is off or the provider is ineligible. Unlike ordinary Footer `segments` flags, quota consent cannot be bypassed by a template.
+
+**Compatibility and privacy:** Zentui uses Pi's public active-model metadata, `modelRegistry.getProvider("openai-codex")`, and `getProviderAuth("openai-codex")`, available on tested Pi 0.84.0 and 0.85.1. Hosts without safe model/provider routing metadata do not collect or display quota; unavailable auth shows placeholders. There is no fallback to private storage or older credential APIs; the overall Pi minimum is unchanged. Auth is sent only to `https://chatgpt.com/backend-api/wham/usage`, with redirects rejected. JWT decoding is limited to the account-routing claim and is not identity verification. An opaque credential change invalidates cached data conservatively.
+
+The endpoint is undocumented and may change or reject some plans. Its path and seconds-based window field are corroborated by [OpenAI's Codex client](https://github.com/openai/codex/blob/rust-v0.98.0/codex-rs/backend-client/src/client.rs); this is not a public API guarantee. Automated verification uses synthetic responses, not a live account. No reset times, countdowns, alerts, or quota history are provided.
+
+### Footer layout authority
+
+Under `components.footer.styles.starship`, `segments` toggles choose the **built-in wide layout** when `format` is empty. An explicit wide `format` chooses its own variables instead. With `responsive` enabled, Zentui tries the wide layout, then reflows it, then uses the independent `compactFormat` template if it still cannot fit. `compactMaxLines` limits compact rows, not their segment selection.
+
+Templates can show a disabled built-in segment or omit an enabled one: disabling Current directory and enabling Session cost can hide cwd and show cost at wide widths, while the default compact template still shows `$cwd` and omits `$cost`. Edit `format` or `compactFormat` to change those templates; `/zentui format clear` resets only the wide layout. Git counts remain a formatting choice for git-status values in both built-in and template layouts. `/zentui` segment descriptions disclose these boundaries; toggles never rewrite templates.
 
 ### Footer path display
 
@@ -327,22 +418,53 @@ For `full` and `repository`, `depth` is the number of final components to retain
 
 Repository roots are associated with the cwd that produced them. While the current root is missing, stale, outside the cwd, still being refreshed, or unavailable after a lookup failure or Git-to-non-Git transition, Zentui silently renders the unlimited `full` path, including `~` home abbreviation. Built-in and custom `$cwd` layouts use the same result at wide and compact widths. These options belong only to the Starship Footer; Minimalist Editor path semantics are unchanged.
 
-### Color ownership
+### Component color overrides and inheritance
 
-- `editorAccent` styles Opencode Editor and User-message accent rails plus the Labeled message label.
-- Optional `editorRail` styles only Accent Rail. When omitted, theme mode uses warm `syntaxNumber`; terminal mode uses portable color 215.
-- `editorPrompt` styles the copy-friendly Opencode prompt glyph. When omitted it uses `editorAccent`, then the default accent fallback.
-- `editorBorder` styles Framed and Framed copy-friendly previous-message borders and the active editor in static border mode.
-- Optional `editorGitBranch` owns Minimalist branch color independently from Footer `gitBranch`. When omitted, Minimalist uses `bold syntaxKeyword` in theme mode or `bold blue` in terminal mode.
-- `editorModel`, `editorProvider`, and `editorThinking*` style editor metadata. `editorThinking` applies to every non-`off` level unless a level-specific key is set.
-- Optional `editorThinkingMax` falls back through `editorThinkingXhigh` and then `editorThinking`; when all are omitted, the active source-specific thinking fallback remains in control. Neither optional key is materialized in the complete-default JSON above.
-- `colors.workingLineLow`, `colors.workingLineMid`, and `colors.workingLineHigh` optionally override the Working-line palette. Defaults are `dim`, `muted`, and `bold accent` in theme mode, or `bright-black`, `cyan`, and `bold cyan` in terminal mode.
+Use sparse `components.<owner>.colors` objects to change only one surface:
+
+```json
+{
+  "colors": { "editorAccent": "blue", "cwdText": "bold cyan" },
+  "components": {
+    "editor": { "colors": { "accent": "fg:202", "gitBranch": "bold blue" } },
+    "userMessages": { "colors": { "accent": "", "border": "bright-black" } },
+    "selectorBorders": { "colors": { "border": "borderMuted" } },
+    "footer": { "colors": { "cwd": "bold green" } },
+    "workingLine": { "colors": { "high": "bold cyan" } }
+  }
+}
+```
+
+Resolution is **component override → historical shared `colors` fallback → existing selected-source default**, both before and after explicit migration. Absent overrides preserve historical output. Shared colors remain optional live fallbacks indefinitely: changing a shared fallback can affect every owner that still inherits it. An override never changes another owner or its color source. There is no generated palette or resolved ANSI snapshot in these objects.
+
+Empty strings and whitespace-only strings mean deliberately **unstyled**, not missing. **Reset / inherit** deletes the local key; hand-deleting a key does the same. Unsupported values are ignored at runtime, while invalid and unknown future JSON keys remain preserved on disk. The settings editor validates supported style strings, distinguishes Escape from an empty submission, and offers role selection within one **Color overrides** action per component (selector borders use Appearance). Thinking (Experimental) has no raw color object or control.
+
+| Owner | Local keys | Historical shared fallback |
+| --- | --- | --- |
+| `footer` | `cwd`, `sessionName`, `gitBranch`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration`, `tokens`, `separator`, `runtimePrefix`, `extensionStatus`, `packageVersion`, `gitCommit`, `gitMetricsAdded`, `gitMetricsDeleted`, `username`, `time`, `os` | Same-named shared key |
+| `editor` | `cwd`, `sessionName`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration` | Same-named shared key; used by Minimalist metadata and quota |
+| `editor` | `gitBranch` | `editorGitBranch`, then explicitly configured shared `gitBranch` / `git`; never the generated Footer branch default |
+| `editor` | `accent`, `border`, `prompt`, `rail`, `shellRail`, `model`, `provider`, `thinking`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax` | `editorAccent`, `editorBorder`, `editorPrompt`, `editorRail`, `editorShellRail`, `editorModel`, `editorProvider`, `editorThinking`, and matching `editorThinking*` level keys |
+| `userMessages` | `accent`, `border` | `editorAccent`, `editorBorder` |
+| `selectorBorders` | `border` | No shared raw key: defaults to theme `borderMuted` / terminal `bright-black`; never inherits `editorBorder` |
+| `workingLine` | `low`, `mid`, `high` | `workingLineLow`, `workingLineMid`, `workingLineHigh` |
+
+Shared aliases `cwdText → cwd` and `git → gitBranch` remain accepted. Footer model/provider are plain text and the detected runtime label uses its runtime module's style, not invented Footer color keys.
+
+Role-specific defaults and chains remain intact:
+
+- Copy-friendly Opencode prompt uses explicit prompt → configured accent → the existing theme `accent` / terminal `blue` fallback. Model's constant fallback does **not** inherit a configured accent. Minimalist retains its distinct model/thinking defaults.
+- In shell-command mode (`!` or `!!`), Opencode's left rail and model label share `shellRail` → configured `accent` → theme `bashMode` / terminal `bright-cyan`. Normal model coloring is unchanged.
+- Accent Rail uses only `rail` / `editorRail`, then warm theme `syntaxNumber` / terminal `215`; it does not inherit `accent`.
+- Minimalist branch defaults to theme `bold syntaxKeyword` / terminal `bold blue` when no local or explicit shared branch style exists.
+- Thinking levels use their level key then generic `thinking`; Max uses `thinkingMax → thinkingXhigh → thinking`. Static metadata and adaptive borders retain their existing distinct fallback behavior; theme-adaptive borders still defer to Pi's thinking-border callback.
+- Working-line defaults remain theme `dim`, `muted`, `bold accent`, or terminal `bright-black`, `cyan`, `bold cyan`. Both animated rows and summaries consume local overrides. New persisted Turn summaries snapshot the effective high style; when no safe SGR prefix exists (including an unstyled high override), they retain the safe bold-cyan substitute. Existing persisted summaries keep their recorded style; legacy version-1 summaries use current high styling.
 
 ## Editor styles
 
 ### Accent Rail
 
-Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. It intentionally has no prompt glyph, metadata, enclosing border, or blank chrome row. Viewport counts appear only while content is clipped.
+Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
@@ -354,9 +476,9 @@ Set `ZENTUI_DEBUG=1` when launching Pi to log the workaround diagnostic without 
 
 ### Minimalist
 
-Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rounded frame places viewport counts, Bash state, current/completed turn duration, and explicit session name at top left; cost, model, thinking, and context at top right; viewport count plus Git at bottom left; and configured path at bottom right. Unnamed sessions add no placeholder.
+Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rounded frame places viewport counts, Bash state, current/completed turn duration, and explicit session name at top left; cost, model, thinking, context, and optional latest-prompt cache hit rate at top right; viewport count plus Git at bottom left; and configured path at bottom right. Unnamed sessions add no placeholder.
 
-Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, and Git can be hidden independently; model, thinking, and context remain structurally stable.
+Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable.
 
 Autocomplete stays inside the frame when Pi output can be split safely. Unknown third-party layouts fail open. Footer visibility remains independently controlled by `components.footer.style`; Minimalist does not remove Pi's header.
 
@@ -410,12 +532,13 @@ The configured right zone and Pi's operational right status are right-aligned to
 | `$context` | compact current context usage and window, for example `26.8%/272k` |
 | `$tokens` | cumulative session input/output tokens only, for example `↑76k ↓1.6k` |
 | `$cache_hit` | latest assistant prompt cache-hit rate to one decimal; `0.0%` when unavailable |
+| `$codex_quota` | remaining 5-hour/weekly account quota; requires Editor quota consent and active `openai-codex` |
 
 `$context` uses Pi's current context snapshot and the live assistant context override, refreshing on the existing 250 ms streaming render cadence. `$tokens` and `$cache_hit` use authoritative persisted session snapshots, so they update at normal session synchronization boundaries rather than estimating in-progress totals. These variables are independent of Footer visibility, style, color source, and configuration.
 
-Model variables use `editorModel`, provider uses `editorProvider`, and thinking uses the matching level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
+Model variables use Editor `colors.model` (legacy `editorModel`), provider uses `colors.provider` (legacy `editorProvider`), and thinking uses the matching Editor level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
 
-Missing, non-string, or empty values use `$model  $provider(  $thinking)`. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
+Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $codex_quota)`, with identical spacing while quota is off. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
 
 ## User-message styles
 
@@ -445,7 +568,7 @@ Only an actually open thinking phase uses `•`; a text/tool transition or resto
 
 Streaming keeps the reviewed host-rendered behavior: while open it shows the latest five rendered terminal rows beneath `Thinking 7.1s`; completion folds under `Thought` or current-session `Thought for Ns`. Restored entries have no duration because Pi does not persist a reliable thinking-end timestamp. Only a session started in active Streaming owns its validated configured `app.thinking.toggle` binding and one-second timer. Ctrl+T and a left click on a Pi 0.85 thinking `MouseRegion` share one expand/refold preference. Startup resource failures and private-shape/render failures use complete native thinking. A cleanup callback that throws while leaving Streaming is contained: Rail or Tree remains active, while Streaming becomes unavailable for that session. Component and timing tracking are bounded to 256; evicted entries are restored natively first.
 
-The exact all-mode private matrix covers Pi 0.80.5, 0.82.1, 0.83.0, 0.84.0, and 0.84.4 under dark, light, and current themes, narrow/wide widths and resize; Pi 0.84.4 also has a fullscreen live-transition PTY smoke. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
+The exact all-mode private matrix covers Pi 0.80.5, 0.82.1, 0.83.0, 0.84.0, 0.84.4, and 0.85.1 under dark, light, and current themes, narrow/wide widths and resize; Pi 0.84.4 also has a fullscreen live-transition PTY smoke. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
 
 ## Working line
 
@@ -515,9 +638,15 @@ Zentui accepts at most 16 unique keys, keys up to 64 code units, and values up t
 | `↓` | Behind |
 | `⇕` | Diverged |
 
+## Icon Auto detection
+
+`icons.mode: "auto"` preserves Auto in memory and on disk while deriving an effective mode for the current process. Exact `ZENTUI_NERD_FONTS=1` or `0` overrides Auto. Otherwise Auto selects Nerd glyphs when `TERM_PROGRAM` is `iTerm.app`, `WezTerm`, or `ghostty` (case-insensitive), or when `KITTY_WINDOW_ID` or `ALACRITTY_SOCKET` is nonempty. Unknown terminals, VS Code, and Windows Terminal default to ASCII-safe glyphs. Explicit `nerd` and `ascii` modes ignore the override and environment signals.
+
+This is conservative terminal-environment detection, not font probing: terminal identity cannot prove that a Nerd Font is installed or configured. Use explicit mode or `ZENTUI_NERD_FONTS` when Auto chooses incorrectly. Custom icon overrides still win over either effective mode.
+
 ## Runtime detection
 
-Runtime/language modules use Starship Nerd Font symbols and defaults such as `bold green` for Node.js. Theme mode maps those styles through Pi; Footer terminal mode uses the terminal colorscheme's ANSI colors.
+Runtime/language modules use Starship Nerd Font symbols and defaults such as `bold green` for Node.js. Theme mode maps those styles through Pi; Footer terminal mode uses the terminal colorscheme's ANSI colors. In Auto mode, runtime, OS, package, rail, and gauge symbols all use the same derived effective icon mode.
 
 | Runtime/language | Detection examples |
 | --- | --- |
@@ -593,7 +722,13 @@ Save this in Pi's `~/.pi/agent/settings.json`, select fullscreen in Pi's `/setti
 
 ## Compatibility and migration
 
-Canonical `components` paths are the primary JSON interface. Component saves materialize canonical snapshots while retaining unknown user-owned fields and unknown future style data on disk. Unknown fields do not affect runtime behavior.
+Canonical `components` paths are the primary JSON interface. Ordinary component saves snapshot and normalize **only the edited owner**: that owner's current legacy-derived selections, sources, and style options become explicit, while unrelated raw JSON values and future styles remain untouched and legacy-derived. Unknown fields do not affect runtime behavior. Color overrides stay sparse and unrelated raw color values are never normalized on save.
+
+Run **`/zentui migrate`** or **Appearance → Migrate component selections** for a separate, explicitly confirmed all-owner snapshot. The confirmation explains that component selections, color sources, and style options are frozen against future shared/root legacy selection edits, while shared raw color inheritance remains active. Migration reads the latest disk file after confirmation, preserves unknown fields, aliases and templates, writes atomically (including through a valid symlink), and is idempotent. It never copies generated color defaults or resolved ANSI into owner overrides. Cancellation, unavailable UI, stale session dialogs, corrupt/unreadable config, and failed atomic writes do not change the config. There is **no automatic startup or first-edit migration** and no version marker.
+
+Snapshot saves remove the edited owners' obsolete nested copy-friendly/Footer-enabled flags after capturing their effective choices. Deliberately reintroducing an owner-local legacy alias is still an edit to that owner: for example, `components.userMessages.styles.framed.copyFriendly` retains its documented alias behavior with `style: "framed"`. This is distinct from shared/root legacy recoupling, which canonical snapshots prevent.
+
+Legacy coupled saver APIs remain explicit multi-owner compatibility transactions; ordinary settings controls never use them. Presets remain sparse, selection-only combinations rather than migrations.
 
 - Flat released inputs such as `editorStyle`, `features`, `footerFormat`, and `compactFooterFormat` remain accepted for migration.
 - `components.footer.enabled` and `features.statusLine` migrate to Starship or Native when no valid Footer style exists; Hidden projects `features.statusLine: false`.

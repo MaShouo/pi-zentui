@@ -1,10 +1,13 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { CodexQuota } from "./codex-quota";
+import { renderCodexQuota } from "./codex-quota-display";
 import {
 	applyOwnedSurfaceBackground,
 	fillTerminalLine,
 	renderCompletionRows,
 } from "./completion-menu";
+import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { renderStyleForSourceOrFallback, type SourceStyleFallback } from "./style";
@@ -22,6 +25,7 @@ export type AccentRailViewport = {
 };
 
 export type AccentRailEditorFrameOptions = {
+	codexQuota?: CodexQuota;
 	width: number;
 	editorLines: string[];
 	autocompleteLines?: string[];
@@ -37,8 +41,8 @@ function clampLines(lines: string[], width: number): string[] {
 
 function selectedRail(config: ZentuiConfig): string {
 	const style = config.components.editor.styles["accent-rail"];
-	const fallback = config.icons.mode === "ascii" ? "|" : "▎";
-	const configured = config.icons.mode === "ascii" ? style.asciiRail : style.rail;
+	const fallback = config.icons.effectiveMode === "ascii" ? "|" : "▎";
+	const configured = config.icons.effectiveMode === "ascii" ? style.asciiRail : style.rail;
 	const sanitized = sanitizeEditorMetadataText(configured);
 	const glyph = truncateToWidth(sanitized, 1, "");
 	return visibleWidth(glyph) === 1 ? glyph : fallback;
@@ -54,6 +58,7 @@ function viewportLabel(
 
 /** Pure compact accent-rail composition shared by live rendering and settings previews. */
 export function renderAccentRailEditorFrame({
+	codexQuota,
 	width,
 	editorLines,
 	autocompleteLines = [],
@@ -69,7 +74,7 @@ export function renderAccentRailEditorFrame({
 	const rail = renderStyleForSourceOrFallback(
 		uiTheme,
 		config.components.editor.colorSource,
-		config.colors.editorRail,
+		componentColor(config, "editor", "rail"),
 		ACCENT_RAIL_FALLBACK,
 		selectedRail(config),
 	);
@@ -79,7 +84,13 @@ export function renderAccentRailEditorFrame({
 	const below = config.components.editor.viewportIndicators
 		? viewportLabel("below", viewport.below)
 		: undefined;
-	const rows = [...(above ? [above] : []), ...editorLines, ...(below ? [below] : [])];
+	const quota = renderCodexQuota(codexQuota, uiTheme, config, "editor");
+	const rows = [
+		...(above ? [above] : []),
+		...editorLines,
+		...(below ? [below] : []),
+		...(quota && visibleWidth(quota) <= contentWidth ? [quota] : []),
+	];
 	const transparent = config.components.editor.styles["accent-rail"].transparent;
 	const surface = rows.map((line) => {
 		const railCell = transparent ? rail : applyOwnedSurfaceBackground(uiTheme, rail);

@@ -16,10 +16,17 @@ import {
 import { basename, dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
+	type ColorOwner,
+	type ComponentColorKey,
+	type ComponentColors,
+	componentColorKeys,
+	normalizeComponentColors,
+} from "./component-colors";
+import {
 	ICON_GLYPH_KEYS,
+	type IconEnvironment,
 	type IconGlyphs,
 	type IconMode,
-	NERD_DEFAULT_ICONS,
 	normalizeIconMode,
 	type ResolvedIcons,
 	resolveConfiguredIcons,
@@ -56,7 +63,7 @@ export type CompletionMenuStyle = "native" | "palette";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
 
 export const DEFAULT_COMPACT_FOOTER_FORMAT =
-	"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens";
+	"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)";
 
 export type ContextThresholds = {
 	warning: number;
@@ -132,6 +139,7 @@ export type MinimalistEditorStyleConfig = {
 	showSessionName: boolean;
 	showTimer: boolean;
 	showCost: boolean;
+	showCacheHit: boolean;
 	showGit: boolean;
 	contextThresholds: ContextThresholds;
 };
@@ -144,6 +152,8 @@ export type EditorStylesConfig = {
 };
 
 export type EditorComponentConfig = {
+	codexQuota: boolean;
+	colors?: ComponentColors<"editor">;
 	enabled: boolean;
 	style: EditorStyle;
 	colorSource: ColorSource;
@@ -164,6 +174,7 @@ export type CompactUserMessageStyleConfig = Record<string, never>;
 export type LabeledUserMessageStyleConfig = Record<string, never>;
 
 export type UserMessagesComponentConfig = {
+	colors?: ComponentColors<"userMessages">;
 	enabled: boolean;
 	style: UserMessageStyle;
 	colorSource: ColorSource;
@@ -176,6 +187,7 @@ export type UserMessagesComponentConfig = {
 };
 
 export type SelectorBordersComponentConfig = {
+	colors?: ComponentColors<"selectorBorders">;
 	enabled: boolean;
 	style: SelectorBorderStyle;
 	colorSource: ColorSource;
@@ -198,6 +210,8 @@ export type StarshipFooterStyleConfig = {
 };
 
 export type FooterComponentConfig = {
+	codexQuota: boolean;
+	colors?: ComponentColors<"footer">;
 	style: FooterStyle;
 	colorSource: ColorSource;
 	modelLabel: ModelLabelSource;
@@ -233,6 +247,7 @@ export function isValidWorkingLineIntervalMs(value: unknown): value is number {
 }
 
 export type WorkingLineComponentConfig = {
+	colors?: ComponentColors<"workingLine">;
 	enabled: boolean;
 	turnSummary: boolean;
 	spinner: WorkingLineSpinner;
@@ -246,7 +261,7 @@ export type WorkingLineComponentConfig = {
 };
 
 export type WorkingLineComponentPatch = Partial<
-	Omit<WorkingLineComponentConfig, "messages" | "segments">
+	Omit<WorkingLineComponentConfig, "messages" | "segments" | "colors">
 > & {
 	messages?: Partial<WorkingLineMessagesConfig>;
 	segments?: Partial<WorkingLineSegmentsConfig>;
@@ -299,7 +314,7 @@ export type ExtensionStatusesConfig = {
 
 const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
 const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
-export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)";
+export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)(  $codex_quota)";
 
 export type ZentuiConfig = {
 	projectRefreshIntervalMs: number;
@@ -330,6 +345,7 @@ export type PolishedTuiColors = {
 	time: ColorSpec;
 	os: ColorSpec;
 	editorAccent?: ColorSpec;
+	editorShellRail?: ColorSpec;
 	editorRail?: ColorSpec;
 	editorPrompt?: ColorSpec;
 	editorBorder?: ColorSpec;
@@ -388,11 +404,13 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"runtime",
 	"model",
 	"provider",
+	"thinkingLevel",
 	"session_duration",
 	"username",
 	"os",
 	"time",
 	"context",
+	"codex_quota",
 	"tokens",
 	"cache_read",
 	"cache_write",
@@ -461,6 +479,7 @@ const defaultMinimalistStyle: MinimalistEditorStyleConfig = {
 	showSessionName: true,
 	showTimer: true,
 	showCost: true,
+	showCacheHit: false,
 	showGit: true,
 	contextThresholds: { warning: 70, error: 90 },
 };
@@ -483,6 +502,7 @@ const defaultStarshipStyle: StarshipFooterStyleConfig = {
 
 const defaultComponents: ComponentsConfig = {
 	editor: {
+		codexQuota: false,
 		enabled: true,
 		style: "opencode",
 		colorSource: "theme",
@@ -523,6 +543,7 @@ const defaultComponents: ComponentsConfig = {
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
+		codexQuota: false,
 		style: "starship",
 		colorSource: "theme",
 		modelLabel: "id",
@@ -532,7 +553,7 @@ const defaultComponents: ComponentsConfig = {
 
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
-	icons: { mode: "auto", ...NERD_DEFAULT_ICONS },
+	icons: resolveConfiguredIcons("auto"),
 	colors: {
 		cwd: "bold cyan",
 		sessionName: "bold green",
@@ -756,6 +777,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		time: colorValue(record, "time"),
 		os: colorValue(record, "os"),
 		editorAccent: colorValue(record, "editorAccent"),
+		editorShellRail: colorValue(record, "editorShellRail"),
 		editorRail: colorValue(record, "editorRail"),
 		editorPrompt: colorValue(record, "editorPrompt"),
 		editorBorder: colorValue(record, "editorBorder"),
@@ -1234,6 +1256,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 
 	return {
 		editor: {
+			codexQuota: parseBoolean(editor.codexQuota, false),
+			...(isRecord(editor.colors)
+				? { colors: normalizeComponentColors("editor", editor.colors) }
+				: {}),
 			enabled: parseBoolean(
 				resolvedValue(editor, "enabled", features, "editor"),
 				defaultComponents.editor.enabled,
@@ -1289,12 +1315,16 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 					),
 					showTimer: parseBoolean(minimalist.showTimer, defaultMinimalistStyle.showTimer),
 					showCost: parseBoolean(minimalist.showCost, defaultMinimalistStyle.showCost),
+					showCacheHit: parseBoolean(minimalist.showCacheHit, defaultMinimalistStyle.showCacheHit),
 					showGit: parseBoolean(minimalist.showGit, defaultMinimalistStyle.showGit),
 					contextThresholds: minimalistThresholds,
 				},
 			},
 		},
 		userMessages: {
+			...(isRecord(userMessages.colors)
+				? { colors: normalizeComponentColors("userMessages", userMessages.colors) }
+				: {}),
 			enabled: userMessagesSelection.enabled,
 			style: userMessagesSelection.style,
 			colorSource: parseColorSource(
@@ -1318,6 +1348,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 						: defaultComponents.thinkingSteps.mode,
 		},
 		workingLine: {
+			...(isRecord(workingLine.colors)
+				? { colors: normalizeComponentColors("workingLine", workingLine.colors) }
+				: {}),
 			enabled: parseBoolean(workingLine.enabled, defaultComponents.workingLine.enabled),
 			turnSummary: parseBoolean(workingLine.turnSummary, defaultComponents.workingLine.turnSummary),
 			spinner:
@@ -1368,6 +1401,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			},
 		},
 		selectorBorders: {
+			...(isRecord(selectorBorders.colors)
+				? { colors: normalizeComponentColors("selectorBorders", selectorBorders.colors) }
+				: {}),
 			enabled: parseBoolean(
 				resolvedValue(selectorBorders, "enabled", features, "editor"),
 				defaultComponents.selectorBorders.enabled,
@@ -1379,6 +1415,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 		},
 		footer: {
+			codexQuota: parseBoolean(footer.codexQuota, false),
+			...(isRecord(footer.colors)
+				? { colors: normalizeComponentColors("footer", footer.colors) }
+				: {}),
 			style: resolveFooterStyle(footer, features),
 			colorSource: parseColorSource(
 				resolvedValue(footer, "colorSource", colorSources, "starship"),
@@ -1493,7 +1533,10 @@ export function hasUnsupportedComponentStyle(
 	return unsupportedComponentStyles.get(config)?.has(owner) ?? false;
 }
 
-export function mergeConfig(parsed: unknown): PolishedTuiConfig {
+export function mergeConfig(
+	parsed: unknown,
+	iconEnvironment: IconEnvironment = process.env,
+): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
 	const iconsRecord = recordValue(config.icons);
 	const colorsRecord = recordValue(config.colors);
@@ -1503,6 +1546,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		icons: resolveConfiguredIcons(
 			normalizeIconMode(iconsRecord.mode),
 			normalizeIconOverrides(iconsRecord),
+			iconEnvironment,
 		),
 		colors: {
 			...defaultConfig.colors,
@@ -1598,6 +1642,7 @@ function restoreUnknownSelectedStyleIds(
 }
 
 function saveComponentsMutation(
+	owners: readonly (keyof ComponentsConfig)[],
 	update: (components: ComponentsConfig) => void,
 	path: string,
 	cleanupRaw?: (record: ConfigRecord) => void,
@@ -1608,8 +1653,18 @@ function saveComponentsMutation(
 		const components = mergeConfig(record).components;
 		update(components);
 		const normalized = resolveComponents({ components });
-		record.components = overlayKnown(record.components, normalized);
+		const rawComponents = { ...recordValue(record.components) };
+		for (const owner of owners) {
+			const { colors: _colors, ...selection } = normalized[
+				owner
+			] as (typeof normalized)[typeof owner] & { colors?: unknown };
+			rawComponents[owner] = overlayKnown(rawComponents[owner], selection);
+		}
+		record.components = rawComponents;
 		restoreUnknownSelectedStyleIds(record, preservedStyles, replacedStyle);
+		if (owners.includes("editor")) deleteLegacyEditorCopyFriendly(record);
+		if (owners.includes("userMessages")) deleteLegacyMessageCopyFriendly(record);
+		if (owners.includes("footer")) deleteLegacyFooterEnabled(record);
 		cleanupRaw?.(record);
 	});
 }
@@ -1658,10 +1713,17 @@ function applyEditorComponentPatch(
 	patch: Partial<
 		Pick<
 			EditorComponentConfig,
-			"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+			| "enabled"
+			| "style"
+			| "colorSource"
+			| "borderColorMode"
+			| "modelLabel"
+			| "viewportIndicators"
+			| "codexQuota"
 		>
 	>,
 ): void {
+	if (patch.codexQuota !== undefined) component.codexQuota = patch.codexQuota;
 	if (patch.enabled !== undefined) component.enabled = patch.enabled;
 	if (patch.style !== undefined) component.style = patch.style;
 	if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
@@ -1676,12 +1738,19 @@ export function saveEditorComponentPatch(
 	patch: Partial<
 		Pick<
 			EditorComponentConfig,
-			"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+			| "enabled"
+			| "style"
+			| "colorSource"
+			| "borderColorMode"
+			| "modelLabel"
+			| "viewportIndicators"
+			| "codexQuota"
 		>
 	>,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
+		["editor"],
 		(components) => applyEditorComponentPatch(components.editor, patch),
 		path,
 		patch.style !== undefined ? deleteLegacyEditorCopyFriendly : undefined,
@@ -1693,34 +1762,46 @@ export function savePolishedEditorStylePatch(
 	patch: Partial<PolishedEditorStyleConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const style = components.editor.styles.opencode;
-		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
-		if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
-	}, path);
+	return saveComponentsMutation(
+		["editor"],
+		(components) => {
+			const style = components.editor.styles.opencode;
+			if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
+			if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
+		},
+		path,
+	);
 }
 
 export function savePolishedCopyFriendlyEditorStylePatch(
 	patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const style = components.editor.styles["opencode-copy-friendly"];
-		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
-		if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
-	}, path);
+	return saveComponentsMutation(
+		["editor"],
+		(components) => {
+			const style = components.editor.styles["opencode-copy-friendly"];
+			if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
+			if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
+		},
+		path,
+	);
 }
 
 export function saveAccentRailEditorStylePatch(
 	patch: Partial<AccentRailEditorStyleConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const style = components.editor.styles["accent-rail"];
-		if (patch.rail !== undefined) style.rail = patch.rail;
-		if (patch.asciiRail !== undefined) style.asciiRail = patch.asciiRail;
-		if (patch.transparent !== undefined) style.transparent = patch.transparent;
-	}, path);
+	return saveComponentsMutation(
+		["editor"],
+		(components) => {
+			const style = components.editor.styles["accent-rail"];
+			if (patch.rail !== undefined) style.rail = patch.rail;
+			if (patch.asciiRail !== undefined) style.asciiRail = patch.asciiRail;
+			if (patch.transparent !== undefined) style.transparent = patch.transparent;
+		},
+		path,
+	);
 }
 
 function applyMinimalistStylePatch(
@@ -1733,6 +1814,7 @@ function applyMinimalistStylePatch(
 	if (patch.showSessionName !== undefined) style.showSessionName = patch.showSessionName;
 	if (patch.showTimer !== undefined) style.showTimer = patch.showTimer;
 	if (patch.showCost !== undefined) style.showCost = patch.showCost;
+	if (patch.showCacheHit !== undefined) style.showCacheHit = patch.showCacheHit;
 	if (patch.showGit !== undefined) style.showGit = patch.showGit;
 	if (patch.contextThresholds !== undefined) {
 		style.contextThresholds = { ...style.contextThresholds, ...patch.contextThresholds };
@@ -1744,6 +1826,7 @@ export function saveMinimalistEditorStylePatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
+		["editor"],
 		(components) => applyMinimalistStylePatch(components.editor.styles.minimalist, patch),
 		path,
 	);
@@ -1754,6 +1837,7 @@ export function saveUserMessagesComponentPatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
+		["userMessages"],
 		(components) => {
 			const component = components.userMessages;
 			if (patch.enabled !== undefined) component.enabled = patch.enabled;
@@ -1770,11 +1854,15 @@ export function saveThinkingStepsComponentPatch(
 	patch: Partial<ThinkingStepsComponentConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const component = components.thinkingSteps;
-		if (patch.enabled !== undefined) component.enabled = patch.enabled;
-		if (patch.mode !== undefined) component.mode = patch.mode;
-	}, path);
+	return saveComponentsMutation(
+		["thinkingSteps"],
+		(components) => {
+			const component = components.thinkingSteps;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.mode !== undefined) component.mode = patch.mode;
+		},
+		path,
+	);
 }
 
 export function saveWorkingLineComponentPatch(
@@ -1782,6 +1870,7 @@ export function saveWorkingLineComponentPatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
+		["workingLine"],
 		(components) => {
 			const component = components.workingLine;
 			if (patch.enabled !== undefined) component.enabled = patch.enabled;
@@ -1816,10 +1905,11 @@ export function saveWorkingLineComponentPatch(
 }
 
 export function saveSelectorBordersComponentPatch(
-	patch: Partial<SelectorBordersComponentConfig>,
+	patch: Partial<Omit<SelectorBordersComponentConfig, "colors">>,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
+		["selectorBorders"],
 		(components) => {
 			const component = components.selectorBorders;
 			if (patch.enabled !== undefined) component.enabled = patch.enabled;
@@ -1833,12 +1923,16 @@ export function saveSelectorBordersComponentPatch(
 }
 
 export function saveFooterComponentPatch(
-	patch: Partial<Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel">>,
+	patch: Partial<
+		Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel" | "codexQuota">
+	>,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
+		["footer"],
 		(components) => {
 			const component = components.footer;
+			if (patch.codexQuota !== undefined) component.codexQuota = patch.codexQuota;
 			if (patch.style !== undefined) component.style = patch.style;
 			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
 			if (patch.modelLabel !== undefined) component.modelLabel = patch.modelLabel;
@@ -1891,6 +1985,7 @@ export function saveStarshipFooterStylePatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
+		["footer"],
 		(components) => applyStarshipStylePatch(components.footer.styles.starship, patch),
 		path,
 	);
@@ -1901,16 +1996,24 @@ export function saveColorSourcesPatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	const valid = validColorSourceEntries(patch);
-	return saveComponentsMutation((components) => {
-		if (valid.starship !== undefined) components.footer.colorSource = valid.starship;
-		if (valid.editor !== undefined) {
-			components.editor.colorSource = valid.editor;
-			components.selectorBorders.colorSource = valid.editor;
-		}
-		if (valid.userMessages !== undefined) {
-			components.userMessages.colorSource = valid.userMessages;
-		}
-	}, path);
+	return saveComponentsMutation(
+		[
+			...(valid.editor !== undefined ? (["editor", "selectorBorders"] as const) : []),
+			...(valid.userMessages !== undefined ? (["userMessages"] as const) : []),
+			...(valid.starship !== undefined ? (["footer"] as const) : []),
+		],
+		(components) => {
+			if (valid.starship !== undefined) components.footer.colorSource = valid.starship;
+			if (valid.editor !== undefined) {
+				components.editor.colorSource = valid.editor;
+				components.selectorBorders.colorSource = valid.editor;
+			}
+			if (valid.userMessages !== undefined) {
+				components.userMessages.colorSource = valid.userMessages;
+			}
+		},
+		path,
+	);
 }
 
 export function saveUiFeaturesPatch(
@@ -1919,6 +2022,14 @@ export function saveUiFeaturesPatch(
 ): PolishedTuiConfig {
 	const valid = validUiFeatureEntries(patch);
 	return saveComponentsMutation(
+		[
+			...(valid.editor !== undefined
+				? (["editor", "userMessages", "selectorBorders"] as const)
+				: valid.viewportIndicators !== undefined
+					? (["editor"] as const)
+					: []),
+			...(valid.statusLine !== undefined ? (["footer"] as const) : []),
+		],
 		(components) => {
 			if (valid.editor !== undefined) {
 				components.editor.enabled = valid.editor;
@@ -1993,51 +2104,67 @@ export function saveContextThresholdsPatch(
 	if (typeof thresholds.warning === "bigint" || typeof thresholds.error === "bigint") {
 		throw new TypeError("Context thresholds must be JSON-serializable numbers");
 	}
-	return saveComponentsMutation((components) => {
-		components.editor.styles.minimalist.contextThresholds = {
-			...components.editor.styles.minimalist.contextThresholds,
-			...thresholds,
-		};
-		components.footer.styles.starship.contextThresholds = {
-			...components.footer.styles.starship.contextThresholds,
-			...thresholds,
-		};
-	}, path);
+	return saveComponentsMutation(
+		["editor", "footer"],
+		(components) => {
+			components.editor.styles.minimalist.contextThresholds = {
+				...components.editor.styles.minimalist.contextThresholds,
+				...thresholds,
+			};
+			components.footer.styles.starship.contextThresholds = {
+				...components.footer.styles.starship.contextThresholds,
+				...thresholds,
+			};
+		},
+		path,
+	);
 }
 
 export function savePathDisplayPatch(
 	patch: Partial<PathDisplayConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		components.footer.styles.starship.pathDisplay = {
-			...components.footer.styles.starship.pathDisplay,
-			...patch,
-		};
-	}, path);
+	return saveComponentsMutation(
+		["footer"],
+		(components) => {
+			components.footer.styles.starship.pathDisplay = {
+				...components.footer.styles.starship.pathDisplay,
+				...patch,
+			};
+		},
+		path,
+	);
 }
 
 export function saveGitBranchPatch(
 	patch: Partial<GitBranchConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		components.footer.styles.starship.gitBranch = {
-			...components.footer.styles.starship.gitBranch,
-			...patch,
-		};
-	}, path);
+	return saveComponentsMutation(
+		["footer"],
+		(components) => {
+			components.footer.styles.starship.gitBranch = {
+				...components.footer.styles.starship.gitBranch,
+				...patch,
+			};
+		},
+		path,
+	);
 }
 
 export function saveEditorModelLabel(
 	value: ModelLabelSource,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const normalized = parseEditorModelLabel(value);
-		components.editor.modelLabel = normalized;
-		components.footer.modelLabel = normalized;
-	}, path);
+	return saveComponentsMutation(
+		["editor", "footer"],
+		(components) => {
+			const normalized = parseEditorModelLabel(value);
+			components.editor.modelLabel = normalized;
+			components.footer.modelLabel = normalized;
+		},
+		path,
+	);
 }
 
 export function saveEditorStyle(value: EditorStyle, path = configPath): PolishedTuiConfig {
@@ -2065,12 +2192,16 @@ export function saveGitCommitPatch(
 	const valid: Partial<GitCommitConfig> = {};
 	if (typeof patch.onlyDetached === "boolean") valid.onlyDetached = patch.onlyDetached;
 	if (typeof patch.showTag === "boolean") valid.showTag = patch.showTag;
-	return saveComponentsMutation((components) => {
-		components.footer.styles.starship.gitCommit = {
-			...components.footer.styles.starship.gitCommit,
-			...valid,
-		};
-	}, path);
+	return saveComponentsMutation(
+		["footer"],
+		(components) => {
+			components.footer.styles.starship.gitCommit = {
+				...components.footer.styles.starship.gitCommit,
+				...valid,
+			};
+		},
+		path,
+	);
 }
 
 export function saveGitMetricsPatch(
@@ -2080,24 +2211,32 @@ export function saveGitMetricsPatch(
 	const valid: Partial<GitMetricsConfig> = {};
 	if (typeof patch.onlyNonzero === "boolean") valid.onlyNonzero = patch.onlyNonzero;
 	if (typeof patch.ignoreSubmodules === "boolean") valid.ignoreSubmodules = patch.ignoreSubmodules;
-	return saveComponentsMutation((components) => {
-		components.footer.styles.starship.gitMetrics = {
-			...components.footer.styles.starship.gitMetrics,
-			...valid,
-		};
-	}, path);
+	return saveComponentsMutation(
+		["footer"],
+		(components) => {
+			components.footer.styles.starship.gitMetrics = {
+				...components.footer.styles.starship.gitMetrics,
+				...valid,
+			};
+		},
+		path,
+	);
 }
 
 export function saveExtensionStatusDefaultPlacement(
 	placement: ExtensionStatusPlacement,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		components.footer.styles.starship.extensionStatuses.defaultPlacement =
-			isExtensionStatusPlacement(placement)
-				? placement
-				: defaultConfig.extensionStatuses.defaultPlacement;
-	}, path);
+	return saveComponentsMutation(
+		["footer"],
+		(components) => {
+			components.footer.styles.starship.extensionStatuses.defaultPlacement =
+				isExtensionStatusPlacement(placement)
+					? placement
+					: defaultConfig.extensionStatuses.defaultPlacement;
+		},
+		path,
+	);
 }
 
 export function saveExtensionStatusPlacement(
@@ -2105,14 +2244,18 @@ export function saveExtensionStatusPlacement(
 	placement: ExtensionStatusPlacement,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		Object.defineProperty(components.footer.styles.starship.extensionStatuses.placements, key, {
-			value: placement,
-			enumerable: true,
-			configurable: true,
-			writable: true,
-		});
-	}, path);
+	return saveComponentsMutation(
+		["footer"],
+		(components) => {
+			Object.defineProperty(components.footer.styles.starship.extensionStatuses.placements, key, {
+				value: placement,
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			});
+		},
+		path,
+	);
 }
 
 export function saveExtensionStatusColorMode(
@@ -2120,12 +2263,56 @@ export function saveExtensionStatusColorMode(
 	colorMode: ExtensionStatusColorMode,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		Object.defineProperty(components.footer.styles.starship.extensionStatuses.colorModes, key, {
-			value: colorMode,
-			enumerable: true,
-			configurable: true,
-			writable: true,
-		});
-	}, path);
+	return saveComponentsMutation(
+		["footer"],
+		(components) => {
+			Object.defineProperty(components.footer.styles.starship.extensionStatuses.colorModes, key, {
+				value: colorMode,
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			});
+		},
+		path,
+	);
+}
+
+/** Explicit all-owner migration; callers must obtain confirmation before invoking. */
+export function migrateComponentSelections(path = configPath): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["editor", "userMessages", "thinkingSteps", "workingLine", "selectorBorders", "footer"],
+		() => {},
+		path,
+	);
+}
+
+/** Undefined deletes the local key: empty and whitespace strings are deliberate unstyled overrides. */
+export function saveComponentColor<O extends ColorOwner>(
+	owner: O,
+	key: ComponentColorKey<O>,
+	value: string | undefined,
+	path = configPath,
+): PolishedTuiConfig {
+	if (!(componentColorKeys[owner] as readonly string[]).includes(key))
+		throw new Error("Unknown component color role");
+	if (value !== undefined && !isSupportedColorSpec(value))
+		throw new Error("Unsupported color style");
+	return saveComponentsMutation(
+		[owner],
+		() => {},
+		path,
+		(record) => {
+			const component = recordValue(recordValue(record.components)[owner]);
+			const colors = { ...recordValue(component.colors) };
+			if (value === undefined) delete colors[key];
+			else
+				Object.defineProperty(colors, key, {
+					value,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				});
+			component.colors = colors;
+		},
+	);
 }

@@ -1,11 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import {
-	defaultConfig,
-	type EditorStyle,
-	type PolishedTuiConfig,
-} from "../extensions/zentui/config";
+import { type EditorStyle, mergeConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import {
 	PolishedEditor,
 	renderWithAutocompleteCapture,
@@ -34,31 +30,31 @@ function config(
 	options: EditorOptions = {},
 	editorBorderColorMode: PolishedTuiConfig["editorBorderColorMode"] = "static",
 ): PolishedTuiConfig {
+	const base = mergeConfig({ icons: { mode: "nerd" } }, {});
 	return {
-		...defaultConfig,
+		...base,
 		components: {
-			...defaultConfig.components,
+			...base.components,
 			editor: {
-				...defaultConfig.components.editor,
-				style: options.style ?? defaultConfig.components.editor.style,
+				...base.components.editor,
+				style: options.style ?? base.components.editor.style,
 				borderColorMode: editorBorderColorMode,
-				viewportIndicators:
-					options.viewportIndicators ?? defaultConfig.components.editor.viewportIndicators,
+				viewportIndicators: options.viewportIndicators ?? base.components.editor.viewportIndicators,
 				styles: {
-					...defaultConfig.components.editor.styles,
+					...base.components.editor.styles,
 					opencode: {
-						...defaultConfig.components.editor.styles.opencode,
+						...base.components.editor.styles.opencode,
 						...(options.completionMenu ? { completionMenu: options.completionMenu } : {}),
 					},
 					"opencode-copy-friendly": {
-						...defaultConfig.components.editor.styles["opencode-copy-friendly"],
+						...base.components.editor.styles["opencode-copy-friendly"],
 						...(options.completionMenu ? { completionMenu: options.completionMenu } : {}),
 					},
 				},
 			},
 		},
 		features: {
-			...defaultConfig.features,
+			...base.features,
 			...(options.editor === undefined ? {} : { editor: options.editor }),
 			...(options.statusLine === undefined ? {} : { statusLine: options.statusLine }),
 			...(options.viewportIndicators === undefined
@@ -714,6 +710,42 @@ describe("editor viewport indicators", () => {
 		expect(lines).toEqual(staleClone);
 		expect(lines.join("\n").match(/model/g)).toHaveLength(1);
 	});
+
+	it.each(
+		(["opencode", "minimalist", "accent-rail"] as const).flatMap((style) =>
+			[false, true].flatMap((sourceShell) =>
+				[false, true].map((currentShell) => ({ style, sourceShell, currentShell })),
+			),
+		),
+	)(
+		"rejects cloned $sourceShell-shell rows in $style with current shell state $currentShell",
+		({ style, sourceShell, currentShell }) => {
+			const sourceConfig = config();
+			sourceConfig.components.editor.colorSource = "terminal";
+			const source = new WrappedPolishedEditor(
+				{ ...baseEditor({}), getText: () => (sourceShell ? "!ls" : "typed text") } as never,
+				theme(),
+				() => sourceConfig,
+				() => ({ modelLabel: "model", providerLabel: "provider" }),
+				() => "off",
+			);
+			const staleClone = source.render(60).slice();
+			expect(staleClone.join("\n")).toContain(sourceShell ? "\x1b[96m" : "\x1b[34m");
+			const targetConfig = withEditorStyle(sourceConfig, style);
+			const target = new WrappedPolishedEditor(
+				{
+					...baseEditor({}),
+					render: () => staleClone,
+					getText: () => (currentShell ? "!ls" : "typed text"),
+				} as never,
+				theme(),
+				() => targetConfig,
+				() => ({ modelLabel: "model", providerLabel: "provider" }),
+				() => "off",
+			);
+			expect(target.render(80)).toEqual(staleClone);
+		},
+	);
 
 	it("rejects in-place mutation of an otherwise provenance-owned rendered array", () => {
 		const rendered = wrapped(baseEditor({ above: 2, below: 3 })).render(80);

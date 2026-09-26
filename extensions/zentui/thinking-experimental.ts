@@ -553,9 +553,12 @@ function getThinkingMouseRegion(component: Component): ThinkingMouseRegion | und
 function matchNativeLayout(
 	children: Component[],
 	descriptors: NativeChildDescriptor[],
+	hiddenRuns?: Map<number, boolean>,
 ): ThinkingMarkdownLayout | undefined {
 	if (children.length !== descriptors.length) return undefined;
 	const thinking: ThinkingMarkdownMatch[] = [];
+	let nativeThinkingRun = -1;
+	let previousThinkingRun: number | undefined;
 	for (let index = 0; index < descriptors.length; index += 1) {
 		const child = children[index];
 		const descriptor = descriptors[index];
@@ -575,7 +578,18 @@ function matchNativeLayout(
 		}
 		const region = descriptor.thinkingRun !== undefined ? getThinkingMouseRegion(child) : undefined;
 		const inner = region?.child ?? child;
-		if (descriptor.thinkingRun !== undefined && exactConstructor(inner, Text)) continue;
+		// Pi numbers only rendered runs; structural IDs also count empty runs.
+		if (descriptor.thinkingRun !== undefined && descriptor.thinkingRun !== previousThinkingRun) {
+			nativeThinkingRun += 1;
+			previousThinkingRun = descriptor.thinkingRun;
+		}
+		if (
+			descriptor.thinkingRun !== undefined &&
+			hiddenRuns?.get(nativeThinkingRun) === true &&
+			region &&
+			exactConstructor(inner, Text)
+		)
+			continue;
 		if (!exactConstructor(inner, Markdown)) return undefined;
 		const shape = markdownShape(inner as Markdown);
 		if (!shape || shape.text !== descriptor.source) return undefined;
@@ -595,10 +609,11 @@ function matchNativeLayout(
 function thinkingMarkdownLayout(
 	children: Component[],
 	message: AssistantMessage,
+	hiddenRuns?: Map<number, boolean>,
 ): ThinkingMarkdownLayout | undefined {
 	let hidden: ThinkingMarkdownLayout | undefined;
 	for (const descriptors of nativeChildLayouts(message)) {
-		const layout = matchNativeLayout(children, descriptors);
+		const layout = matchNativeLayout(children, descriptors, hiddenRuns);
 		if (!layout) continue;
 		if (layout.matches.length) return layout;
 		hidden ??= layout;
@@ -674,7 +689,7 @@ function replaceThinkingChildren(
 	const owned = writableOwnChildren(instance);
 	if (!owned) return "incompatible";
 	const { container, children } = owned;
-	const layout = thinkingMarkdownLayout(children, message);
+	const layout = thinkingMarkdownLayout(children, message, instance.thinkingVisibilityOverrides);
 	if (!layout) return "incompatible";
 	if (!layout.matches.length) return "hidden";
 	const replacements = new Map<number, Component>();

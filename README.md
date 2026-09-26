@@ -31,214 +31,70 @@ pi install /path/to/pi-sakura-cyberdeck
 
 Select **sakura-macaron** from `/settings`, then restart Pi once. Use `/zentui` for editor, message, footer, and layout settings, and `/sakura-matrix on|off` for the Matrix widget.
 
+## Highlights
+
+| Surface | Default | Available treatments |
+| --- | --- | --- |
+| Editor | `opencode` | Opencode, copy-friendly, Accent Rail, Minimalist |
+| User messages | `framed` | Framed, copy-friendly, Compact, Labeled |
+| Thinking (Experimental) | disabled (`tree`) | Rail, Tree, Streaming |
+| Working line | disabled | Five spinner presets, live tool/time/thinking/token segments, turn summary |
+| Footer | `starship` | Native, Starship, Hidden |
+| Selector borders | `zentui` | Independent enablement and color source |
+
+The Starship Footer shows directory, Git, runtime, context, tokens, and cost. Optional segments include model/provider, package version, session duration, `user@host`, time, OS, Git commit, Git metrics, and third-party extension statuses. The layout is segment-driven by default and supports a complete Starship-style format template.
+
 When the Working line is enabled, third-party extensions can publish keyed text segments through Pi's shared event bus. Zentui composes those segments into the owned row so Classic and KITT animate across them with the built-in content. See the [Working-line extension integration](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#working-line-extension-integration) reference.
 
 Zentui detects a broad set of runtime and language modules, preserves Nerd Font icons with an ASCII mode, and can source colors from the active Pi theme or directly from the terminal palette.
 
-## Zentui foundation
+## Screenshots
 
-Zentui styles four major Pi surfaces independently:
+### Editors
 
-- **Editor** — selectable opencode, low-rail opencode, and minimalist input frames inspired by [Opencode](https://github.com/opencode-ai/opencode)
-- **User messages** — selectable framed, framed copy-friendly, compact, and labeled transcript messages
-- **Working line** — optional ownership and styling of Pi's complete in-progress row
-- **[Starship](https://starship.rs/) footer** — current directory, Git, runtime, context, tokens, cost, and other configurable segments
+<h4 align="center"><code>opencode</code></h4>
 
-Editor, User messages, Working line, and selector borders use independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. **Appearance** contains selector-border and icon settings.
+![Zentui Opencode editor with an accent rail, model metadata, Nerd Font Git branch, and Starship footer.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/editor-opencode.png)
 
-## Features
+<h4 align="center"><code>opencode-copy-friendly</code></h4>
 
-### Footer (Starship-inspired)
+![Zentui copy-friendly Opencode editor with model metadata, Nerd Font Git branch, and Starship footer.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/editor-opencode-copy-friendly.png)
 
-- `dirname` — current directory (`basename` by default; optional `full` path with directory depth via `pathDisplay`)
-- `on  branch` — git branch with icon
-- `[!?↑]` — git status indicators (modified, untracked, ahead/behind, stashed, etc.)
-- `via  v5.5.0` — runtime detection with version and Starship-style Nerd Font runtime/language modules
-- Optional segments (off by default): selected model/provider, `user@host`, current time, OS icon, session duration, and the **project package version** (e.g. `package.json` → `0.6.0`) — distinct from the runtime segment, which shows the installed toolchain
-- Right side shows context usage, token counts, and cost
-- Built-in footer segments can be shown or hidden individually from `/zentui`
-- Fully custom Starship-style layout via the `components.footer.styles.starship.format` template string — see [Footer Format Template](#footer-format-template)
-- Third-party Pi extension statuses from `ctx.ui.setStatus()` can be shown on the left,
-  middle, or right side, or hidden per status key from `/zentui`
+<h4 align="center"><code>accent-rail</code></h4>
 
-### Editor (Opencode-inspired)
+![Zentui Accent Rail editor with a filled single-left-rail input and Starship footer.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/editor-accent-rail.png)
 
-- `opencode` (default) keeps an accent rail on every interior row; the bundled Sakura theme closes those rows with a matching right rail, while ordinary Zentui themes retain the upstream left-rail layout
-- `opencode-copy-friendly` (**Opencode (copy-friendly)** in `/zentui`) preserves the low-rail rendering for clean terminal selection
-- `minimalist` moves session name, cost, model, thinking, context, Git, configurable path, Bash state, and turn duration into a rounded frame
-- The selected model label and provider appear inside both Opencode editor variants; the model ID is used by default, while `components.editor.modelLabel: "name"` uses the display name with ID fallback.
-- Opencode autocomplete rows retain Pi's original unframed trailing layout; Minimalist keeps autocomplete inside its rounded frame
-- Configurable model, provider, thinking-level, accent, and border colors
+<h4 align="center"><code>minimalist</code></h4>
 
-Editor styles:
-
-```text
-opencode                 opencode-copy-friendly     minimalist
-────────────────────     ────────────────────       ╭─ session ── model ╮
-│                  │
-│ prompt           │     › prompt                  │ prompt             │
-│                  │
-│ metadata         │      metadata                 ╰─ git ───── path ──╯
-────────────────────     ────────────────────
-```
-
-`accent-rail` — single filled left-rail editor from upstream v0.22 — is also available via `/zentui`.
+![Zentui Minimalist editor with session, cost, model, Git, and path metadata in a rounded frame with the Footer hidden.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/editor-minimalist.png)
 
 ### User messages
 
-- `framed` (default) preserves the full-width bordered prompt box with an accent rail
-- `framed-copy-friendly` (**Framed (copy-friendly)** in `/zentui`) keeps the full-width horizontal borders and blank spacer rows, removes the copied accent rail, and retains a one-cell leading gutter before body text.
-- `compact` uses only an accent rail, with no border or padding rows
-- `labeled` uses a rounded box with the fixed label `User`
-- Disabling User-message styling delegates byte-for-byte to Pi's native renderer; native is not a style ID
-- No custom `plain` message style is provided
+<h4 align="center"><code>framed</code></h4>
+
+![Zentui Framed user-message style with horizontal borders, spacer rows, and an accent rail.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/user-message-framed.png)
+
+<h4 align="center"><code>framed-copy-friendly</code></h4>
+
+![Zentui copy-friendly Framed user-message style with horizontal borders, spacer rows, and a copyable left edge.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/user-message-framed-copy-friendly.png)
+
+<h4 align="center"><code>compact</code></h4>
+
+![Zentui Compact user-message style with a slim accent rail and no surrounding borders.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/user-message-compact.png)
+
+<h4 align="center"><code>labeled</code></h4>
+
+![Zentui Labeled user-message style in a rounded frame with the label User.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/user-message-labeled.png)
+
+## Configure
+
+Sakura frames follow the bundled `sakura-macaron` theme. Set `components.editor.colors.border`, `components.userMessages.colors.border`, or `components.selectorBorders.colors.border` to `sakura-macaron-gradient` to opt into gradient frames per surface with another theme; set an ordinary border color to override the theme gradient on that surface. Shared `colors.editorBorder` remains a legacy Editor/User-message fallback and the marker for Sakura transcript and Footer accents.
+
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, and Footer. With Starship selected, Footer contains **Segments →**, **Git →**, and **Extension statuses →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments`, `/zentui git`, and `/zentui extensions` open the Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation, without changing style or saved preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
-framed                    framed-copy-friendly
-────────────────────      ────────────────────
-│
-│ Message                  Message
-│
-────────────────────      ────────────────────
-
-compact                    labeled
-│ Message                 ╭─ User ───────────╮
-│ Continued               │ Message          │
-                          │ Continued        │
-                          ╰──────────────────╯
+~/.pi/agent/zentui.json
 ```
-
-### Working line
-
-When enabled, the optional Working line always owns and stylizes Pi's complete working-row message and indicator. It provides five fixed-width spinner presets: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse. **Custom messages** defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays styled, animated `Working…` without random selection. An empty or invalid custom list safely uses the same fallback. The row can show the latest active **Tool**, interaction-wide **Elapsed** time, cumulative wall-clock **Thinking** time, and whole-interaction **Tokens**. Committed totals stay exact and provider-reported across tool loops, automatic retries, compaction retries, and queued continuations. During the current response, live output uses the native `↓N` convention whether it comes from provider usage or an estimate used while provider usage is unavailable or stale. Authoritative final usage always reconciles the response atomically; input is never estimated. Messages and tool labels are sanitized and width-bounded.
-
-When Pi has fully settled and will not continue automatically, the default-on **Turn summary** appends a persistent, context-free transcript row such as ` Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlapping blocks count once and zero is omitted. Output usage already includes reasoning tokens, so reasoning is not added separately. The summary always includes both token totals—even when live Tokens or Thinking is hidden or both totals are zero—and can be opted out of without affecting historical summaries. Turn summaries use the fixed Working-line high style and are inactive while the overall Working line is disabled.
-
-Spinner glyph motion is always active. Classic and KITT move color across the message and segments by default; **Animate spinner color** optionally includes spinner cells and their separator in that sweep. Static colors the complete row uniformly and ignores text speed and spinner-color participation without changing their saved values. Content fits the 77-cell indicator payload while reserving the complete Tokens label first, then Message, Thought, Elapsed, and Tool allocation, and preserves the visual **Message · Tool · Elapsed · Thought · Tokens** order and complete 80-column Loader-row contract. Active thought appears immediately as `thinking 0s` and updates once per second; completed positive thought appears as `thought for Ns`. Rebuilds preserve the displayed spinner and visible color-sweep position. Pi's working-row APIs are global and unkeyed, so another extension may win by writing last.
-
-| Setting | Default | Presets | Applies to |
-| --- | ---: | --- | --- |
-| `spinnerIntervalMs` | 100 ms | Fast 60 / Normal 100 / Slow 160 / Custom | Spinner glyph motion |
-| `textIntervalMs` | 60 ms | Fast 40 / Normal 60 / Slow 100 / Custom | Classic/KITT color motion |
-
-Both speeds accept safe integers from `30` through `1000` ms. Static ignores text speed without changing it. Classic/KITT combine both cadences through one Pi Loader interval; exact cycles are used within the 1024-frame/512-KiB limits. Pathological custom pairs use a bounded evenly distributed schedule: cycle totals round by at most half a spinner glyph cycle and half a text step, spinner wrap remains continuous, and text phase may reset once per bounded fallback array cycle. Legacy `intervalMs` is accepted only as migration input for `spinnerIntervalMs` when the canonical field is absent.
-
-### Git Status Icons
-
-### Thinking (Experimental)
-
-**Thinking (Experimental)** uses one private `AssistantMessageComponent` renderer for Rail, Tree, and Streaming, tested against exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, and 0.84.4. It duck-types Pi 0.85 thinking `MouseRegion` wrappers without upgrading the 0.84 host, and Streaming temporarily clears native per-run visibility overrides so fold, Ctrl+T, and left-click share one expand preference; Rail and Tree still follow Pi's hidden state. It is disabled by default and may break after Pi updates. Zentui installs an enabled startup mode before transcript restoration. A healthy installed controller lets active Streaming switch live to Rail or Tree, and lets Rail and Tree switch live between each other, without reinstalling its patch. Entering Streaming from Rail or Tree saves the choice but keeps the active structural mode until restart. Disabling live restores native thinking and releases Streaming resources. First enable and re-enable after a live disable are also restart-gated. Mode changes while disabled only preconfigure the next enable. Startup failures, missing constructors, incompatible private child layouts, parser limits, theme/render/width errors, and displaced patch ownership fail open to complete native thinking. If cleanup throws while leaving Streaming, disabling still restores native thinking and a structural selection still becomes active; the successful change warns that Streaming is unavailable for the rest of the session.
-
-Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, folds completed reasoning under `Thought` or current-session `Thought for 12.3s`, and owns the configured thinking-toggle binding (Ctrl+T by default) only when started in Streaming. Its input listener and timer are acquired only for an enabled Streaming session start; startup acquisition failure uses native thinking and marks Streaming unavailable. Restored completions cannot recover a duration because Pi does not persist the thinking-end timestamp. Expand/refold and lifecycle tracking are bounded to 256 retained assistant components; evicted entries are first restored natively. All modes restore/dispose on shutdown. Thinking (Experimental) never writes the Working line and does not change its existing **Thinking time** option, working text, Footer, Editor, statuses, or model behavior.
-
-Rail parses each native contiguous thinking run and renders every label through a fresh host-shaped Pi `Markdown` instance before cropping. Complete strict SGR styling is stripped before parsing; every other terminal control and unsafe or unstructured content keeps the complete run native.
-
-Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi.
-
-| Icon | Meaning    |
-| ---- | ---------- |
-| `!`  | Modified   |
-| `?`  | Untracked  |
-| `+`  | Staged     |
-| `✘`  | Deleted    |
-| `»`  | Renamed    |
-| `=`  | Conflicted |
-| `$`  | Stashed    |
-| `↑`  | Ahead      |
-| `↓`  | Behind     |
-| `⇕`  | Diverged   |
-
-### Runtime Detection
-
-Detects Starship Nerd Font runtime/language modules, uses the Starship Nerd Font symbols, and keeps Starship-style defaults such as `bold green` for Node.js. By default Zentui maps those styles through your active Pi theme; switch the Starship/footer color source to `terminal` in `/zentui` if you want your terminal colorscheme to supply the exact ANSI colors.
-
-| Runtime/language | Detection examples                                            |
-| ---------------- | ------------------------------------------------------------- |
-| Buf              | `buf.yaml`, `buf.gen.yaml`, `buf.work.yaml`                   |
-| Bun              | `bun.lock`, `bun.lockb`                                       |
-| C                | `.c`, `.h` files                                              |
-| C++              | `.cpp`, `.cc`, `.cxx`, `.hpp` files                           |
-| CMake            | `CMakeLists.txt`, `CMakeCache.txt`                            |
-| COBOL            | `.cbl`, `.cob` files                                          |
-| Conda            | `CONDA_DEFAULT_ENV` environment                               |
-| Crystal          | `.cr` files, `shard.yml`                                      |
-| Dart             | `.dart` files, `pubspec.yaml`, `.dart_tool/`                  |
-| Deno             | `deno.json`, `deno.jsonc`, `deno.lock`                        |
-| .NET             | `.csproj`, `.fsproj`, `global.json`, `Directory.Build.*`      |
-| Elixir           | `mix.exs`                                                     |
-| Elm              | `.elm` files, `elm.json`, `elm-stuff/`                        |
-| Erlang           | `rebar.config`, `erlang.mk`                                   |
-| Fennel           | `.fnl` files                                                  |
-| Fortran          | `.f`, `.f90`, `.f95`, `.f03`, `.f08`, `.f18`, `fpm.toml`      |
-| Gleam            | `.gleam` files, `gleam.toml`                                  |
-| Go               | `go.mod`                                                      |
-| Gradle           | `build.gradle`, `build.gradle.kts`, `gradle/`                 |
-| Guix shell       | `GUIX_ENVIRONMENT` environment                                |
-| Haskell          | `.hs`, `.cabal`, `stack.yaml`, `cabal.project`                |
-| Haxe             | `.hx`, `.hxml`, `haxelib.json`, `.haxerc`                     |
-| Helm             | `helmfile.yaml`, `Chart.yaml`                                 |
-| Java             | `.java-version`                                               |
-| Julia            | `.jl` files, `Project.toml`, `Manifest.toml`                  |
-| Kotlin           | `.kt`, `.kts` files                                           |
-| Lua              | `.lua` files, `stylua.toml`, `.luarc.json`, `lua/` dir        |
-| Maven            | `pom.xml`                                                     |
-| Meson            | `MESON_DEVENV=1` and `MESON_PROJECT_NAME` environment         |
-| Mojo             | `.mojo` files                                                 |
-| Nim              | `.nim`, `.nims`, `.nimble`, `nim.cfg`                         |
-| Nix shell        | `IN_NIX_SHELL=pure` or `IN_NIX_SHELL=impure` environment      |
-| Node.js          | `package.json`, `.nvmrc`, `.node-version`                     |
-| OCaml            | `.opam`, `.ml`, `.mli`, `dune`, `_opam/`, `esy.lock/`         |
-| Odin             | `.odin` files                                                 |
-| OPA/Rego         | `.rego` files                                                 |
-| Perl             | `.pl`, `.pm`, `Makefile.PL`, `cpanfile`, `META.*`             |
-| PHP              | `composer.json`                                               |
-| Pixi             | `pixi.toml`, `pixi.lock`, `PIXI_ENVIRONMENT_NAME` environment |
-| Pulumi           | `Pulumi.yaml`, `Pulumi.yml`                                   |
-| PureScript       | `.purs` files, `spago.dhall`, `spago.yaml`, `spago.lock`      |
-| Python           | `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile`   |
-| R                | `.R`, `.Rmd`, `.Rproj`, `DESCRIPTION`, `.Rproj.user/`         |
-| Raku             | `.raku`, `.rakumod`, `.p6`, `.pm6`, `META6.json`              |
-| Red              | `.red`, `.reds` files                                         |
-| Ruby             | `Gemfile`, `.ruby-version`                                    |
-| Rust             | `Cargo.toml`                                                  |
-| Scala            | `.scala`, `.sbt`, `build.sbt`, `.metals/`                     |
-| Solidity         | `.sol` files                                                  |
-| Spack            | `SPACK_ENV` environment                                       |
-| Swift            | `.swift` files, `Package.swift`                               |
-| Terraform        | `.tf`, `.tfplan`, `.tfstate`, `.terraform/`                   |
-| Typst            | `.typ` files, `template.typ`                                  |
-| Vagrant          | `Vagrantfile`                                                 |
-| V                | `.v` files, `v.mod`, `vpkg.json`                              |
-| Xmake            | `xmake.lua`                                                   |
-| Zig              | `.zig` files, `build.zig`                                     |
-
-## Install
-
-```bash
-pi install git:github.com/MaShouo/pi-zentui
-```
-
-The package already includes Zentui and its Sakura visual integrations. Do not install stock `pi-zentui` or `pi-claude-shimmer` alongside it because those packages own the same editor, footer, transcript, and working-indicator surfaces.
-
-## Config
-
-User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, built-in footer segment visibility, and active third-party status placements.
-
-The interactive `/zentui` menu is split into nine component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi.
-
-1. **Appearance** — selector-border enablement, style, and colors; icon mode.
-2. **Editor** — editor enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
-3. **User messages** — message enablement, `framed | framed-copy-friendly | compact | labeled` style selection (including **Framed (copy-friendly)**), colors, and a static synthetic Markdown preview.
-4. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom-message toggle and editable list, Tool/Elapsed/Thinking/Tokens toggles, and animated preview.
-5. **Thinking (Experimental)** — upstream v0.22 adds optional Rail, Tree, or Streaming private-thinking renderers; configure `components.thinkingSteps` (`streaming | rail | tree`).
-6. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and repository-relative path display.
-7. **Segments** — visibility toggles for non-Git Starship segments.
-8. **Git** — Starship Git segment and probe controls.
-9. **Extensions** — Starship extension-status placement and color controls for active keys.
-
-Editor, User messages, and Working line retain independent configuration. Editor and User-message previews use fixed synthetic content and remain visible while their component is disabled; the Working-line preview reflects its current configured sample, state, and animation. Each preview appears above its settings. Only the Working-line preview owns an animation timer. Footer's single style selects Pi's built-in Footer (`Native`), Zentui's Starship Footer, or an owned zero-row Footer (`Hidden`). Color and model-label rows update only their owning component.
-
-Starship-specific Footer rows are shown only while Starship is selected. The **Segments**, **Git**, and **Extensions** sections remain available for preconfiguration under every Footer style. Free-form values such as custom formats, Opencode metadata format, raw colors/styles, and inactive extension keys remain JSON-only; Working-line speed accepts validated custom milliseconds in `/zentui`.
 
 ### Component presets
 
@@ -255,403 +111,72 @@ Presets apply once, saving only these component selections. Colors, color source
 
 The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset keeps settings open for further adjustments. Editor installation waits until the panel closes; if editor ownership prevents application, the saved choice may require reloading Pi.
 
-Useful slash-command shortcuts:
+### Minimal overrides
+
+Installation enables Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer. Working line and Thinking (Experimental) remain disabled. Missing fields retain those defaults; there is no automatic migration. Auto icons use Nerd glyphs for iTerm2, WezTerm, Ghostty, Kitty, and Alacritty environment signals, and otherwise fall back to ASCII. Set `ZENTUI_NERD_FONTS=1` or `0` to override Auto. These environment heuristics cannot detect whether a Nerd Font is installed or configured; explicit `nerd` and `ascii` modes always win. ASCII changes icons, not the entire UI.
+
+Change only what you need. For example, this changes only the Editor's accent:
+
+```json
+{
+  "components": {
+    "editor": { "colors": { "accent": "bold blue" } }
+  }
+}
+```
+
+Each owner's **Color overrides** action edits raw styles independently. **Reset / inherit** deletes the local key; an empty string intentionally removes styling. Shared `colors` remain live historical fallbacks before **and after** migration. Color sources remain independent too.
+
+To adopt **only User messages**, explicitly leave the other default-enabled surfaces alone:
+
+```json
+{
+  "components": {
+    "editor": { "enabled": false },
+    "userMessages": { "enabled": true, "style": "framed" },
+    "selectorBorders": { "enabled": false },
+    "footer": { "style": "native" }
+  }
+}
+```
+
+Disabled/Native leaves Pi or a predecessor in control. Hidden instead intentionally owns zero Footer rows. Ordinary saves snapshot only the edited owner. `/zentui migrate` is a separate confirmed all-owner selection/source/style-option snapshot; it preserves aliases, unknown fields, and shared color inheritance, and never copies generated palettes. See the configuration reference for exact owner color keys and reset behavior.
+
+Detailed reference:
+
+- [Configuration, component styles, defaults, runtime detection, and compatibility](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md)
+- [Footer format template and variables](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/footer-format.md)
+
+The Starship Footer path defaults to `basename`. Opt into `components.footer.styles.starship.pathDisplay.mode: "repository"` to omit the repository directory itself: the repository root renders `.`, while `/repo/extensions/zentui` renders `extensions/zentui`. `depth` keeps the final N components in `full` and `repository` modes; `0` is unlimited. Until a current, safely contained repository root is available, repository mode silently uses the unlimited `full` path with `~` home abbreviation.
+
+Useful shortcuts:
 
 ```text
-/zentui editor enable
-/zentui editor disable
-/zentui statusline enable
-/zentui statusline disable
 /zentui editor toggle
-/zentui messages enable
-/zentui messages disable
 /zentui messages toggle
-/zentui statusline toggle
-/zentui messages
-/zentui user-messages
 /zentui working-line
-/zentui viewport-indicators enable
-/zentui viewport-indicators disable
+/zentui statusline toggle
 /zentui viewport-indicators toggle
 /zentui format "$cwd on branch $git_branch$git_status using $runtime $fill $context"
 /zentui format clear
 ```
 
-`footer`, `statusline`, `status`, and `status line` are aliases: enable selects Starship, disable selects Native, and toggle selects Native only from Starship (Native or Hidden toggle to Starship).
+**Thinking (Experimental)** uses one private `AssistantMessageComponent` renderer for Rail, Tree, and Streaming, tested against exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, 0.84.4, and 0.85.1. It is disabled by default and may break after Pi updates. Zentui installs an enabled startup mode before transcript restoration. A healthy installed controller lets active Streaming switch live to Rail or Tree, and lets Rail and Tree switch live between each other, without reinstalling its patch. Entering Streaming from Rail or Tree saves the choice but keeps the active structural mode until restart. Disabling live restores native thinking and releases Streaming resources. First enable and re-enable after a live disable are also restart-gated. Mode changes while disabled only preconfigure the next enable. Startup failures, missing constructors, incompatible private child layouts, parser limits, theme/render/width errors, and displaced patch ownership fail open to complete native thinking. If cleanup throws while leaving Streaming, disabling still restores native thinking and a structural selection still becomes active; the successful change warns that Streaming is unavailable for the rest of the session.
 
-Default config values — copy this and change any value you want:
+Rail shows every parsed label in each native contiguous thinking run (`│ Label`, with only the open final phase shown as `│ • Label`). Tree independently shows the latest five labels in each run (`├─ · Label`, settled `└─ · Label`, open `└─ • Label`); it never aggregates across intervening text or tool blocks. Rail and Tree follow Pi's thinking visibility. Complete strict SGR styling is stripped before parsing; every other terminal control and unsafe or unstructured content keeps the complete run native. Labels are rendered by fresh host-shaped Pi Markdown instances before cropping, so emphasis, code, links, HTML, LaTeX, custom transforms, and native `thinkingText` styling remain host-controlled. Every label occupies one terminal row: ANSI/OSC/grapheme-aware cropping adds `…` only when needed. Native horizontal padding stays external. Connectors are styled directly with the current theme's `accent` callback on every render, so custom themes control them independently. Hidden native thinking remains hidden and keeps Pi's native hidden label.
 
-```json
-{
-	"projectRefreshIntervalMs": 30000,
-	"components": {
-		"editor": {
-			"enabled": true,
-			"style": "opencode",
-			"colorSource": "theme",
-			"borderColorMode": "static",
-			"modelLabel": "id",
-			"viewportIndicators": true,
-			"styles": {
-				"opencode": {
-					"metadataFormat": "$model  $provider(  $thinking)"
-				},
-				"opencode-copy-friendly": {
-					"metadataFormat": "$model  $provider(  $thinking)"
-				},
-				"minimalist": {
-					"pathDisplay": "compact",
-					"contextFormat": "percent",
-					"contextGauge": false,
-					"showSessionName": true,
-					"showTimer": true,
-					"showCost": true,
-					"showGit": true,
-					"contextThresholds": {
-						"warning": 70,
-						"error": 90
-					}
-				}
-			}
-		},
-		"userMessages": {
-			"enabled": true,
-			"style": "framed",
-			"colorSource": "theme",
-			"styles": {
-				"framed": {},
-				"framed-copy-friendly": {},
-				"compact": {},
-				"labeled": {}
-			}
-		},
-		"workingLine": {
-			"enabled": false,
-			"turnSummary": true,
-			"spinner": "star-bloom",
-			"spinnerIntervalMs": 100,
-			"animateSpinnerColor": false,
-			"textIntervalMs": 60,
-			"textAnimation": "classic",
-			"colorSource": "theme",
-			"messages": {
-				"custom": true,
-				"values": [
-					"Sautéing…", "Cooking…", "Ionizing…", "Zigzagging…",
-					"Razzle-dazzling…", "Photosynthesizing…", "Nucleating…", "Brewing…",
-					"Combobulating…", "Boogieing…", "Befuddling…", "Alchemizing…",
-					"Conjuring…", "Baking…", "Simmering…", "Blanching…"
-				]
-			},
-			"segments": {
-				"tool": true,
-				"elapsed": true,
-				"thought": true,
-				"tokens": true
-			}
-		},
-		"selectorBorders": {
-			"enabled": true,
-			"style": "zentui",
-			"colorSource": "theme"
-		},
-		"footer": {
-			"style": "starship",
-			"colorSource": "theme",
-			"modelLabel": "id",
-			"styles": {
-				"starship": {
-					"format": "",
-					"responsive": true,
-					"compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
-					"compactMaxLines": 2,
-					"separator": "pipe",
-					"contextStyle": "text",
-					"contextThresholds": {
-						"warning": 70,
-						"error": 90
-					},
-					"pathDisplay": {
-						"mode": "basename",
-						"depth": 0
-					},
-					"segments": {
-						"cwd": true,
-						"sessionName": true,
-						"gitBranch": true,
-						"gitStatus": true,
-						"gitCounts": false,
-						"runtime": true,
-						"modelInfo": false,
-						"context": true,
-						"tokens": true,
-						"cost": true,
-						"sessionDuration": false,
-						"username": false,
-						"time": false,
-						"os": false,
-						"packageVersion": false,
-						"gitCommit": false,
-						"gitMetrics": false
-					},
-					"gitBranch": {
-						"maxLength": "full"
-					},
-					"gitCommit": {
-						"hashLength": 7,
-						"onlyDetached": true,
-						"showTag": true
-					},
-					"gitMetrics": {
-						"onlyNonzero": true,
-						"ignoreSubmodules": false
-					},
-					"extensionStatuses": {
-						"defaultPlacement": "right",
-						"placements": {},
-						"colorModes": {}
-					}
-				}
-			}
-		}
-	},
-	"icons": {
-		"mode": "auto",
-		"cwd": "",
-		"git": "",
-		"ahead": "↑",
-		"behind": "↓",
-		"diverged": "⇕",
-		"conflicted": "=",
-		"untracked": "?",
-		"stashed": "$",
-		"modified": "!",
-		"staged": "+",
-		"renamed": "»",
-		"deleted": "✘",
-		"typechanged": "T",
-		"cacheHit": "󰆼",
-		"editorPrompt": "",
-		"rail": "│",
-		"username": "",
-		"time": "",
-		"os": ""
-	},
-	"colors": {
-		"cwd": "bold cyan",
-		"sessionName": "bold green",
-		"gitBranch": "bold purple",
-		"gitStatus": "bold red",
-		"contextNormal": "bright-black",
-		"contextWarning": "bold yellow",
-		"contextError": "bold red",
-		"tokens": "bright-black",
-		"cost": "bold green",
-		"extensionStatus": "bright-black",
-		"separator": "bright-black",
-		"runtimePrefix": "",
-		"sessionDuration": "yellow",
-		"packageVersion": "208",
-		"gitCommit": "bold green",
-		"gitMetricsAdded": "bold green",
-		"gitMetricsDeleted": "bold red",
-		"username": "bold yellow",
-		"time": "bold yellow",
-		"os": "bold white",
-		"editorAccent": "accent",
-		"editorPrompt": "accent",
-		"editorBorder": "sakura-macaron-gradient",
-		"editorModel": "accent",
-		"editorProvider": "text",
-		"editorThinking": "muted",
-		"editorThinkingMinimal": "thinkingMinimal",
-		"editorThinkingLow": "thinkingLow",
-		"editorThinkingMedium": "thinkingMedium",
-		"editorThinkingHigh": "thinkingHigh",
-		"editorThinkingXhigh": "thinkingXhigh"
-	}
-}
-```
+Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, folds completed reasoning under `Thought` or current-session `Thought for 12.3s`, and owns the configured thinking-toggle binding (Ctrl+T by default) only when started in Streaming. Its input listener and timer are acquired only for an enabled Streaming session start; startup acquisition failure uses native thinking and marks Streaming unavailable. Restored completions cannot recover a duration because Pi does not persist the thinking-end timestamp. Expand/refold and lifecycle tracking are bounded to 256 retained assistant components; evicted entries are first restored natively. All modes restore/dispose on shutdown. Thinking (Experimental) never writes the Working line and does not change its existing **Thinking time** option, working text, Footer, Editor, statuses, or model behavior.
 
-- Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b` / `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`). Short `#rgb` hex values expand to `#rrggbb`.
-- `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
-- `components.editor`: owns editor enablement, `opencode | opencode-copy-friendly | minimalist` style selection, color source, border mode, model label, viewport indicators, and all three editor-style configurations.
-- `components.userMessages`: owns message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. `framed-copy-friendly` remains Zentui-rendered; disabling the component delegates to Pi's native renderer.
-- `components.workingLine`: `enabled` is the sole ownership switch. While enabled, Zentui owns both the Working-row message and indicator and renders the full row. It configures `braille | star-bloom | pinwheel | claude-inspired | pulse`, independent spinner/text speeds, optional Classic/KITT spinner-color participation, `classic | kitt | disabled` text animation, color source, the default-on `messages.custom` toggle and editable 16-value list, plus Tool/Elapsed/Thinking/Tokens segments. Thinking only controls the live row; measurement and final summaries continue while it is hidden. Custom-off and empty-list fallback both render owned `Working…`; Static keeps glyph motion but ignores text speed and spinner-color participation.
-- Optional `colors.workingLineLow`, `colors.workingLineMid`, and `colors.workingLineHigh` override its palette. Without overrides, theme mode uses `dim`, `muted`, and `bold accent`; terminal mode uses `bright-black`, `cyan`, and `bold cyan`.
-- `components.selectorBorders`: owns selector-border enablement, the fixed `zentui` style, and its color source.
-- `components.footer`: owns `native | starship | hidden` style selection, Footer color source, Footer model label, and every Starship option under `styles.starship` (formats, segments, context thresholds, path, Git, and extension statuses). Native restores Pi's built-in Footer; Hidden installs an empty component with zero rows.
-- Editor and Footer `modelLabel` values are independent and have separate controls in the **Editor** and **Footer** sections.
-- Selector borders support only `zentui`; set their owning `enabled` field to `false` for native Pi behavior.
-- Flat released keys such as `editorStyle`, `features`, and `footerFormat` remain accepted as migration input. `components.footer.enabled` and `features.statusLine` migrate to Starship or Native when no valid Footer style is present; Hidden projects `features.statusLine: false`. Canonical `components` paths are the primary JSON interface, and component saves materialize canonical snapshots.
-- Explicit unsupported future component style IDs are preserved unchanged on disk but fail open at runtime: Editor, User-message, and selector-border customization stay disabled, while Footer behavior is Native. Missing, empty, or malformed style values continue normal default and legacy migration behavior.
-- The flat properties returned by `mergeConfig`, `loadConfig`, and save helpers are deprecated compatibility output and will remain available until at least the next major release. This output deprecation is separate from accepted legacy flat JSON input.
-- `polished` and `polished-copy-friendly` remain read-only migration aliases for `opencode` and `opencode-copy-friendly`. Legacy `features.copyFriendly` and the old nested Editor/message `copyFriendly` fields are read-only migration inputs: message copy-friendly `true` selects `framed-copy-friendly` rather than disabling custom rendering. Explicit Editor or User-message style saves remove only the corresponding obsolete nested flag; raw released feature keys, unknown fields, and unknown style data remain preserved as user-owned migration data.
-- The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
-- `editorAccent` styles Editor and User-message accent rails and the labeled message label.
-- `editorPrompt` styles the `opencode-copy-friendly` Editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
-- Selecting the bundled `sakura-macaron` theme automatically enables Sakura frame gradients, transcript tool cards, thinking trails, and footer accents. `editorBorder` also accepts the explicit marker `sakura-macaron-gradient` when you want those visuals with another theme; set any other valid border color to use ordinary Zentui rendering.
-- `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
+Pi 0.84 also provides a native fullscreen TUI with a sticky editor and Footer. Pi 0.84.4 is covered by a fullscreen live-transition PTY smoke in addition to the standard matrix. Zentui does not enable fullscreen automatically; select it from Pi's `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`.
 
-Tip: with `opencode-copy-friendly`, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
+**Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
 
-## Minimalist editor style
-
-Set `components.editor.style` to `minimalist` or select it from the `/zentui` **Editor** tab. The rounded frame shows viewport counts, Bash state, the current/completed turn duration, and the explicit Pi session name at top left; cost, model, thinking level, and context usage at top right; viewport count plus Git branch/status at bottom left; and the configured path at bottom right. Unnamed sessions add no placeholder. Autocomplete stays inside the frame when Pi's existing editor output can be split safely. Unknown third-party editor layouts fail open without decoration.
-
-The Minimalist editor is inspired by [pi-custom-input](https://github.com/VinhLe1410/pi-custom-input), with an independent implementation in Zentui.
-
-While `minimalist` is selected, the `/zentui` **Editor** area shows its focused controls without repeating the style name on every row. Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or—with the gauge enabled and enough room—`[█░░░░] 11%/372k`. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, and Git can be hidden independently; model, thinking, and context remain structurally stable.
-
-Footer visibility is controlled by `components.footer.style`: use `starship`, `native`, or `hidden`. Minimalist editor decoration and the Starship Footer may be shown together, including at narrow widths or after decoration fallback. Minimalist style does not remove Pi's header.
-
-## Editor Metadata Format
-
-Set `metadataFormat` under either opencode style in `~/.pi/agent/zentui.json` to customize that style's metadata row. The two variants retain independent values:
-
-```json
-{
-	"components": {
-		"editor": {
-			"styles": {
-				"opencode": {
-					"metadataFormat": "$model_name ($model_id)( · $provider)( · $thinking)( · $session_name)"
-				},
-				"opencode-copy-friendly": {
-					"metadataFormat": "$model( · $provider)"
-				}
-			}
-		}
-	}
-}
-```
-
-The syntax follows the Footer Format Template conventions: `$variable` and `${variable}` references, literal text and spaces, and conditional groups `( ... )` that disappear when all variables inside are empty. Unknown variables and `$fill` render empty; `$fill` never creates an editor layout zone because the right side remains reserved for structural Vim status.
-
-| Token           | Renders                                                                                       |
-| --------------- | --------------------------------------------------------------------------------------------- |
-| `$model`        | label selected by `components.editor.modelLabel` (`id`, or name with ID fallback)            |
-| `$model_id`     | active Pi model ID                                                                            |
-| `$model_name`   | active Pi model display name; empty when no name is set                                       |
-| `$provider`     | provider label using Zentui's existing formatting                                             |
-| `$thinking`     | current thinking level; empty when thinking is `off`                                          |
-| `$session_name` | current Pi session name; empty when unnamed                                                    |
-
-Model variables use `editorModel`, provider uses `editorProvider`, and thinking uses the matching `editorThinking*` style. Literal text and `$session_name` use the neutral editor border theme style. The template controls spacing. ANSI/VT sequences, control characters, and line-breaking whitespace are sanitized before rendering without collapsing ordinary spaces.
-
-Missing, non-string, or empty values use the default `$model  $provider(  $thinking)`. A non-empty format that resolves to no visible metadata keeps the normal blank spacer and metadata rows so the editor frame height remains stable. This option is configured only through JSON in its first version; `/zentui format` continues to control the footer only.
-
-## Footer Format Template
-
-For full control, set `components.footer.styles.starship.format` to a Starship-style template string. It supports `$variable` and `${variable}` tokens, a special `$fill` token that splits the line into left and right zones, and conditional groups `( ... )` that drop entirely when every nested variable is empty. When set, it overrides `components.footer.styles.starship.segments`; when empty or omitted, the segment layout above is used.
-
-A second `$fill` creates a **centered middle zone** — content between the two fills is true-centered (`floor((gap - middle) / 2)`), just like third-party statuses placed `middle`.
-
-```json
-{
-	"components": {
-		"footer": {
-			"styles": {
-				"starship": {
-					"format": "$os $username $cwd($sep$session_name)( on $git_branch)( $git_status)( via $runtime)$fill($context)($sep$tokens)($sep$cost)($sep$time)"
-				}
-			}
-		}
-	}
-}
-```
-
-Center the branch between directory and cost:
-
-```json
-{
-	"components": {
-		"footer": {
-			"styles": {
-				"starship": {
-					"format": "$cwd $fill $git_branch $fill $cost"
-				}
-			}
-		}
-	}
-}
-```
-
-The released flat `footerFormat` and `footerSegments` keys remain accepted only as legacy migration inputs.
-
-### Variables
-
-| Token               | Aliases      | Renders                                                             |
-| ------------------- | ------------ | ------------------------------------------------------------------- |
-| `$cwd`              | `$directory` | current directory                                                   |
-| `$session_name`     |              | current Pi session name                                             |
-| `$git_branch`       | `$branch`    | git branch with icon                                                |
-| `$git_status`       | `$status`    | `[!?↑]` status block                                                |
-| `$git_state`        | `$state`     | `REBASING` / `MERGING` / … (optional `n/m`)                         |
-| `$git_commit`       | `$commit`    | short commit hash (+ exact-match tag when present)                  |
-| `$git_tag`          | `$tag`       | exact-match tag at HEAD                                             |
-| `$git_metrics`      |              | aggregate line changes `+added −deleted`                            |
-| `$git_added`        |              | added line count (`+N`)                                             |
-| `$git_deleted`      |              | deleted line count (`−N`)                                           |
-| `$runtime`          |              | runtime icon + version                                              |
-| `$model`            |              | selected model label (`components.footer.modelLabel`)                |
-| `$provider`         |              | formatted provider label                                            |
-| `$package`          |              | project package version, `is <glyph> <version>` (manifest-derived)  |
-| `$package_version`  |              | raw project package version (no icon)                               |
-| `$session_duration` | `$duration`  | session running time                                                |
-| `$username`         |              | `user@host`                                                         |
-| `$os`               |              | operating-system icon                                               |
-| `$time`             |              | current time `HH:MM`                                                |
-| `$context`          |              | context usage (text and/or gauge; finite percentages use one decimal) |
-| `$tokens`           |              | input/output counts and existing cache-hit percentage               |
-| `$cache_read`       |              | cache-read total (`R1.2k`); empty at zero or when unavailable       |
-| `$cache_write`      |              | cache-write total (`W300`); empty at zero or when unavailable       |
-| `$cost`             |              | session cost                                                        |
-| `$subscription`     |              | `(sub)` in subscription mode; otherwise empty                       |
-| `$auto_compaction`  |              | `(auto)` when automatic compaction is enabled; otherwise empty      |
-| `$sep`              | `$separator` | themed `\|` using `colors.separator`                               |
-| `$fill`             | —            | special: splits zones                                               |
-
-### `$fill` behavior
-
-| `$fill` count | Layout                                                                   |
-| ------------- | ------------------------------------------------------------------------ |
-| 0             | everything left-aligned                                                  |
-| 1             | tokens before → left, tokens after → right                               |
-| 2             | before first → left, between → **centered middle**, after second → right |
-| 3+            | first two count; extras ignored                                          |
-
-- Literal text (`on branch`, `using`, `\|`, spaces) is rendered verbatim — you control all spacing.
-- Each variable renders its core value only (no `on`/`via` prefixes); add those words as literal text.
-- Conditional groups: wrap optional pieces in parentheses, e.g. `$cwd( on $git_branch)($git_status)$fill($context)`. If every `$var` inside a group is empty, the whole group (including its literals) is dropped.
-- `$session_name` is available whenever `components.footer.styles.starship.format` is set, independently of `components.footer.styles.starship.segments.sessionName`; use a conditional group such as `($sep$session_name)` so unnamed sessions leave no separator.
-- The built-in wide footer appends cache totals to the token segment, `(sub)` to cost, and `(auto)` to context when available. Custom formats keep `$tokens`, `$cost`, and `$context` backward-compatible and include telemetry only through the atomic variables above.
-- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider and atomic telemetry. Add their variables explicitly to `components.footer.styles.starship.compactFormat` to opt in at narrow widths. The flat `compactFooterFormat` key is a legacy migration input.
-- Auto-compaction settings refresh on the next normal footer synchronization event. Unsupported Pi capabilities or settings-read errors safely omit optional markers.
-- Unknown `$variables` render empty.
-- Set or clear at runtime: `/zentui format "<template>"` and `/zentui format clear`.
-
-## Pi fullscreen mode
-
-Pi 0.84 introduces a native fullscreen TUI with a sticky editor and Footer plus an independently scrollable transcript. Enable it in Pi's `~/.pi/agent/settings.json`:
-
-```json
-{
-	"tuiMode": "fullscreen"
-}
-```
-
-You can also select fullscreen from Pi's `/settings` UI or start Pi with `--tui-mode fullscreen`. Zentui does not enable fullscreen automatically: Pi owns terminal layout, scrolling, and sticky placement, while Zentui supplies the configured editor and Footer components. Pi 0.80.5–0.83 remain supported for Zentui styling, without native sticky placement.
-
-## Acknowledgments
-
-The minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-custom-input](https://github.com/VinhLe1410/pi-custom-input) and is integrated with Zentui's existing editor, state, configuration, and compatibility layers.
+Minimalist can also show the latest assistant prompt's cache hit rate in its top-right metadata. Enable **Editor → Minimalist → Cache hit rate** or set `components.editor.styles.minimalist.showCacheHit` to `true`; it is off by default and does not depend on Footer.
 
 ## Requirements
 
 - [Pi](https://pi.dev) coding agent 0.80.5 or newer
-- A truecolor terminal
-- A [Nerd Font](https://www.nerdfonts.com/) for icons (or set `icons.mode` to `"ascii"`)
+- A [Nerd Font](https://www.nerdfonts.com/) for Nerd icons; Auto falls back to ASCII when no supported terminal signal is present
 
 ## Conflicts
 
@@ -676,38 +201,42 @@ The Sakura resources remain parallel extensions, while Zentui visual changes are
 
 ```bash
 npm install
-npm run verify
 npm run fmt
+npm run verify
 npm run pack:check
 ```
 
-### Test in Pi
-
-The project keeps Pi core packages as peer dependencies for runtime and dev dependencies for
-typechecking. To avoid accidentally running the local `node_modules/.bin/pi` shim, the dev scripts use
-the globally installed Pi binary by default:
+Run Pi with only the local extension:
 
 ```bash
 npm run pi:dev
+```
+
+Install the checkout as a local Pi package:
+
+```bash
 npm run pi:install-local
 ```
 
-Override the binary if your Pi install is somewhere else:
+Override the globally installed Pi binary when needed:
 
 ```bash
 PI_BIN=/path/to/pi npm run pi:dev
 ```
 
-## Credits
+See [CONTRIBUTING.md](https://github.com/lmilojevicc/pi-zentui/blob/main/CONTRIBUTING.md) for manual UI-test and pull-request expectations.
 
-Built on [Zentui](https://github.com/lmilojevicc/pi-zentui) by Luka and inspired by:
+## Inspiration and credits
 
-- [pi-claude-shimmer](https://github.com/ouzhenkun/pi-claude-shimmer) by ouzhenkun
-- [Starship](https://starship.rs/), for the minimal and configurable prompt model
-- [Opencode](https://github.com/opencode-ai/opencode), for the terminal UI direction
+- [Starship](https://starship.rs/) — inspiration for the informative, segment-based Footer
+- [Opencode](https://github.com/anomalyco/opencode) — inspiration for the Opencode editor treatment
+- [Oh My Pi (`omp`)](https://github.com/can1357/oh-my-pi) by [Can Bölük](https://github.com/can1357) — visual inspiration for the filled, single-left-rail Accent Rail editor
+- [Pi Custom Input](https://github.com/VinhLe1410/pi-custom-input) by [Vinh Le](https://github.com/VinhLe1410) — visual inspiration for Minimalist's framed, border-embedded session, model, context, Git, and path metadata
+- [Pi Thinking Steps](https://github.com/crustyhacker/pi-thinking-steps) by Marc Mironescu / FluxGear — structural-step parsing and the Rail/Tree visual language; adapted in Thinking (Experimental) under the MIT License
+- [Pi Thinking Fold](https://github.com/99percentpeople/pi-extensions/tree/master/extensions/thinking-fold) by [Zach Yuen](https://github.com/99percentpeople) — native rendered-row folding, timing, expand/refold behavior, and fail-open compatibility patterns; adapted in Thinking (Experimental) under the MIT License
 
-See `NOTICE` and `licenses/` for bundled attribution.
+Most Zentui implementations are independent; these credits acknowledge product and visual inspiration. Thinking (Experimental) also adapts MIT-licensed implementation work from Pi Thinking Steps and Pi Thinking Fold. Their complete copyright and permission notices are retained in the packaged [`thinking-experimental.ts`](./extensions/zentui/thinking-experimental.ts) source.
 
 ## License
 
-MIT
+Zentui is licensed under the MIT License. Wallpaper photo by [Mohammad Alizade](https://unsplash.com/@mohamadaz) on [Unsplash](https://unsplash.com/photos/SB5MIXFjJxs), used under the [Unsplash License](https://unsplash.com/license). The photograph appearing in showcase screenshots is not relicensed under MIT.
