@@ -17,6 +17,12 @@ This package keeps Zentui's editor, user-message, footer, and configuration capa
 
 Matrix owns only its widget. Claude shimmer uses Pi's working message and indicator only while Zentui's upstream Working line is disabled; when enabled, Working line owns and styles the complete row, so the two modes do not overwrite one another.
 
+- **Editor** — Opencode, Opencode copy-friendly, Accent Rail, and Minimalist input treatments
+- **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
+- **Thinking (Experimental)** — optional Rail, Tree, or Streaming private thinking renderers, without owning the Working line
+- **Working line** — optional ownership of Pi's complete in-progress row and settled turn summary
+- **Footer** — Pi's native Footer, a Starship-style statusline, or Hidden (only allowed extension statuses)
+
 ## Quick start
 
 ```bash
@@ -90,7 +96,7 @@ Zentui detects a broad set of runtime and language modules, preserves Nerd Font 
 
 Sakura frames follow the bundled `sakura-macaron` theme. Set `components.editor.colors.border`, `components.userMessages.colors.border`, or `components.selectorBorders.colors.border` to `sakura-macaron-gradient` to opt into gradient frames per surface with another theme; set an ordinary border color to override the theme gradient on that surface. Shared `colors.editorBorder` remains a legacy Editor/User-message fallback and the marker for Sakura transcript and Footer accents.
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, and Footer. With Starship selected, Footer contains **Segments →**, **Git →**, and **Extension statuses →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments`, `/zentui git`, and `/zentui extensions` open the Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation, without changing style or saved preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or saved Starship placement/color preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
 ~/.pi/agent/zentui.json
@@ -105,9 +111,9 @@ Choose **Appearance → Preset** in `/zentui`, or run `/zentui preset <id>`:
 | `opencode` | Opencode | Starship | Framed |
 | `opencode-copy-friendly` | Opencode (copy-friendly) | Starship | Framed (copy-friendly) |
 | `rail` | Accent Rail | Starship | Compact (accent rail) |
-| `minimalist` | Minimalist | Hidden (zero rows) | Zentui styling disabled |
+| `minimalist` | Minimalist | Hidden (statuses only) | Zentui styling disabled |
 
-Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses the Footer; it is not Native.
+Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses main Footer segments, not allowed extension statuses; it is not Native.
 
 The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset keeps settings open for further adjustments. Editor installation waits until the panel closes; if editor ownership prevents application, the saved choice may require reloading Pi.
 
@@ -140,7 +146,7 @@ To adopt **only User messages**, explicitly leave the other default-enabled surf
 }
 ```
 
-Disabled/Native leaves Pi or a predecessor in control. Hidden instead intentionally owns zero Footer rows. Ordinary saves snapshot only the edited owner. `/zentui migrate` is a separate confirmed all-owner selection/source/style-option snapshot; it preserves aliases, unknown fields, and shared color inheritance, and never copies generated palettes. See the configuration reference for exact owner color keys and reset behavior.
+Disabled/Native leaves Pi or a predecessor in control. Hidden instead shows only allowed extension statuses below the editor, with no row when empty. Ordinary saves snapshot only the edited owner. `/zentui migrate` is a separate confirmed all-owner selection/source/style-option snapshot; it preserves aliases, unknown fields, and shared color inheritance, and never copies generated palettes. See the configuration reference for exact owner color keys and reset behavior.
 
 Detailed reference:
 

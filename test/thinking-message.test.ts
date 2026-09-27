@@ -222,6 +222,17 @@ function thinkingMouseRegions(assistant: AssistantMessageComponent): HostMouseRe
 	);
 }
 
+function visibleNativeChild(child: object): object {
+	// Pi 0.85+ keeps the native Markdown inside a MouseRegion.
+	return "onMouse" in child &&
+		typeof child.onMouse === "function" &&
+		"child" in child &&
+		child.child !== null &&
+		typeof child.child === "object"
+		? child.child
+		: child;
+}
+
 function installPi85ThinkingRenderer(): void {
 	const native = originalDescriptor?.value as (this: unknown, ...args: unknown[]) => unknown;
 	const constructors = new Map<string, object>([
@@ -244,7 +255,10 @@ function installPi85ThinkingRenderer(): void {
 			const result = Reflect.apply(native, this, args);
 			const children = this.contentContainer?.children;
 			if (!Array.isArray(children)) return result;
-			for (const child of children) {
+			// Normalize the installed host to bare children before modeling Pi 0.85.
+			for (let index = 0; index < children.length; index += 1) {
+				const child = visibleNativeChild(children[index]) as Component;
+				children[index] = child;
 				const expected = constructors.get(child.constructor.name);
 				if (expected && Object.getPrototypeOf(child) !== expected)
 					Object.setPrototypeOf(child, expected);
@@ -266,7 +280,7 @@ function installPi85ThinkingRenderer(): void {
 				const isHiddenThinkingText =
 					Object.getPrototypeOf(child) === Text.prototype &&
 					runIndex < texts.length &&
-					this.hideThinkingBlock === true;
+					(this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock === true);
 				if (!isThinkingMarkdown && !isHiddenThinkingText) continue;
 				const capturedRun = runIndex;
 				const hidden =
@@ -292,7 +306,7 @@ function installPi85ThinkingRenderer(): void {
 	});
 }
 
-function bridgeSourceLoadedMarkdownIdentity(): void {
+function installPi84ThinkingRenderer(): void {
 	const native = originalDescriptor?.value as (this: unknown, ...args: unknown[]) => unknown;
 	const constructors = new Map<string, object>([
 		["Markdown", Markdown.prototype],
@@ -305,7 +319,11 @@ function bridgeSourceLoadedMarkdownIdentity(): void {
 			const result = Reflect.apply(native, this, args);
 			const children = (this as { contentContainer?: { children?: object[] } }).contentContainer
 				?.children;
-			for (const child of children ?? []) {
+			// Pi 0.84 exposed bare Markdown rather than clickable MouseRegions.
+			for (let index = 0; index < (children?.length ?? 0); index += 1) {
+				if (!children) break;
+				const child = visibleNativeChild(children[index]);
+				children[index] = child;
 				const expected = constructors.get(child.constructor.name);
 				if (expected && Object.getPrototypeOf(child) !== expected)
 					Object.setPrototypeOf(child, expected);
@@ -441,7 +459,7 @@ describe("Sakura + Thinking (Experimental) MouseRegion composition", () => {
 	);
 
 	it("still wraps Pi 0.84 bare Markdown without installing a MouseRegion", () => {
-		bridgeSourceLoadedMarkdownIdentity();
+		installPi84ThinkingRenderer();
 		startExperimentalThenSakura({ enabled: true, mode: "tree" });
 		const assistant = component();
 		assistant.updateContent(message("# Bare markdown", 1_000), true);
