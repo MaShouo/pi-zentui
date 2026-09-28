@@ -58,6 +58,8 @@ export type MinimalistEditorMetadata = {
 	sessionName?: string;
 	agentDurationMs?: number;
 	agentActive?: boolean;
+	/** Controller-gated border content; never resolve canonical placement in the renderer. */
+	workingLineFrame?: string;
 };
 
 export type MinimalistFrameOptions = {
@@ -182,6 +184,7 @@ function renderTopLeft(
 				: safeThemeFg(uiTheme, "muted", duration),
 		);
 	}
+	if (metadata.workingLineFrame) parts.push(metadata.workingLineFrame);
 	const sessionName = includeSessionName
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
 		: "";
@@ -499,6 +502,7 @@ export function renderMinimalistFrame({
 	const topFallbacks = [
 		joinStyled([topViewport, topOperational], separator),
 		topOperational,
+		...(metadata.workingLineFrame ? [metadata.workingLineFrame] : []),
 	].filter((value, index, values) => value !== topLeft && values.indexOf(value) === index);
 	const top = renderLabeledBorder({
 		width,

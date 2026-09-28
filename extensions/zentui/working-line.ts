@@ -59,6 +59,7 @@ type GraphemeCell = { text: string; start: number; width: number };
 type WorkingLineUi = {
 	setWorkingMessage(message?: string): void;
 	setWorkingIndicator(options?: { frames?: string[]; intervalMs?: number }): void;
+	setWorkingVisible?(visible: boolean): void;
 };
 
 type WorkingLineContext = {
@@ -1144,6 +1145,13 @@ export class WorkingLineController {
 	private ownsIndicator = false;
 	private ownsMessage = false;
 	private agentActive = false;
+	private animationTimer?: ReturnType<typeof setInterval>;
+	private animationIntervalMs: number | undefined;
+	private hiddenWorkingVisible = false;
+	private restoreWorkingVisible: (() => void) | undefined;
+	private installedUi: WorkingLineUi | undefined;
+	private placementContext: WorkingLineContext | undefined;
+	private requestRender: () => void = () => {};
 	private selectedMessage: string | undefined;
 	private frameKey: string | undefined;
 	private installedPhase: InstalledAnimationPhase | undefined;
@@ -1172,9 +1180,11 @@ export class WorkingLineController {
 		private readonly getThought: () => WorkingLineRuntimeSegments["thought"] = () => this.thought,
 		private readonly onUnavailable: () => void = () => {},
 		private readonly metricScheduler: WorkingLineMetricScheduler = defaultMetricScheduler,
+		private readonly canEmbedBorder: (ctx: WorkingLineContext) => boolean = () => false,
 	) {}
 
 	startSession(ctx: WorkingLineContext): WorkingLineReconcileResult {
+		this.reset(ctx);
 		this.clearRuntime();
 		this.selectedMessage = undefined;
 		this.installedPhase = undefined;
@@ -1190,6 +1200,7 @@ export class WorkingLineController {
 			// stored indicator so the subsequently constructed Loader begins at intended frame zero.
 			this.install(ctx, true, true);
 		}
+		this.reconcilePlacement(ctx);
 		this.reconcileElapsedUpdates(ctx);
 	}
 
@@ -1254,9 +1265,12 @@ export class WorkingLineController {
 
 	finishAgent(ctx: WorkingLineContext): void {
 		this.agentActive = false;
+		this.stopAnimationTicks();
+		this.releaseWorkingVisibility();
 		this.activeTools.clear();
 		this.deactivateElapsedUpdates();
 		this.updateIndicator(ctx);
+		this.requestRender();
 	}
 
 	flushMetrics(
@@ -1303,6 +1317,26 @@ export class WorkingLineController {
 		return this.selectedMessage;
 	}
 
+	setRequestRender(requestRender: () => void): void {
+		this.requestRender = requestRender;
+	}
+
+	/** Only the currently capable, owned border renderer may consume this frame. */
+	currentWorkingLineFrame(): string | undefined {
+		if (!this.placementContext || !this.reconcilePlacement(this.placementContext)) return undefined;
+		const frames = this.installedIndicatorOptions?.frames;
+		if (!frames || frames.length === 0) {
+			return this.selectedMessage;
+		}
+		if (!this.installedPhase || this.installedPhase.frameStates.length === 0) {
+			return frames[0];
+		}
+		const interval = this.installedPhase.intervalMs > 0 ? this.installedPhase.intervalMs : 100;
+		const elapsedMs = Math.max(0, this.now() - this.installedPhase.frameEpochMs);
+		const frameIndex = Math.max(0, Math.floor(elapsedMs / interval)) % frames.length;
+		return frames[frameIndex] ?? this.selectedMessage;
+	}
+
 	/** Whether this controller currently claims both required public Working-row surfaces. */
 	isAvailable(): boolean {
 		return (
@@ -1321,12 +1355,14 @@ export class WorkingLineController {
 	): WorkingLineReconcileResult {
 		this.cancelMetricIndicator();
 		const ui = workingLineUi(ctx);
+		if (this.installedUi && this.installedUi !== ui) this.reset(ctx);
 		if (!ui) {
-			this.installed = false;
-			this.deactivateElapsedUpdates();
+			this.reset(ctx);
 			this.invalidateUnavailableExtensionSegments();
 			return { applied: false, reason: "Working line requires a newer Pi TUI" };
 		}
+		this.installedUi = ui;
+		this.placementContext = ctx;
 		const rootConfig = this.getConfig();
 		const config = rootConfig.components.workingLine;
 		const nextMessage =
@@ -1339,6 +1375,7 @@ export class WorkingLineController {
 			}
 			this.applyIndicator(ui, rootConfig, nextMessage, forceIndicator, rebasePhase);
 			this.selectedMessage = nextMessage;
+			this.reconcilePlacement(ctx);
 			this.reconcileElapsedUpdates(ctx);
 			return { applied: true };
 		} catch {
@@ -1471,12 +1508,22 @@ export class WorkingLineController {
 	private updateIndicator(ctx: WorkingLineContext): boolean {
 		this.cancelMetricIndicator();
 		const rootConfig = this.getConfig();
-		if (!rootConfig.components.workingLine.enabled || !this.installed) return false;
+		if (!rootConfig.components.workingLine.enabled) {
+			this.reset(ctx);
+			return false;
+		}
 		const ui = workingLineUi(ctx);
-		if (!ui) return false;
+		if (!ui || this.installedUi !== ui) {
+			this.reset(ctx);
+			this.invalidateUnavailableExtensionSegments();
+			return false;
+		}
+		if (!this.installed) return false;
+		this.placementContext = ctx;
 		const snapshot = this.installationSnapshot();
 		try {
 			this.applyIndicator(ui, rootConfig);
+			this.reconcilePlacement(ctx);
 			return !this.extensionSegmentsDirty;
 		} catch {
 			// A transient last-writer/public-API failure must not break the agent turn.
@@ -1527,7 +1574,86 @@ export class WorkingLineController {
 		this.metricUpdateScheduled = false;
 		this.metricUpdateHandle = undefined;
 	}
+	/** Placement is independent of the cached row contents and never changes user choices. */
+	private reconcilePlacement(ctx: WorkingLineContext): boolean {
+		let canEmbed = false;
+		const ui = this.installedUi;
+		try {
+			canEmbed = Boolean(
+				this.agentActive &&
+					this.isAvailable() &&
+					this.getConfig().components.workingLine.placement === "border" &&
+					ui &&
+					workingLineUi(ctx) === ui &&
+					typeof ui.setWorkingVisible === "function" &&
+					this.canEmbedBorder(ctx),
+			);
+		} catch {
+			// Capability probes, including predecessor editor getters, must fail open.
+		}
+		if (!canEmbed || !ui) {
+			this.stopAnimationTicks();
+			this.releaseWorkingVisibility();
+			return false;
+		}
+		if (!this.hiddenWorkingVisible) {
+			// A failed restoration remains attached to its original UI, even after reset.
+			this.releaseWorkingVisibility();
+			if (this.restoreWorkingVisible) return false;
+			try {
+				const setVisible = ui.setWorkingVisible;
+				if (typeof setVisible !== "function") return false;
+				this.restoreWorkingVisible = () => setVisible.call(ui, true);
+				setVisible.call(ui, false);
+				this.hiddenWorkingVisible = true;
+			} catch {
+				// A throwing setter may already have hidden the row. Restore without claiming it.
+				this.stopAnimationTicks();
+				this.releaseWorkingVisibility();
+				return false;
+			}
+		}
+		this.startAnimationTicks();
+		return true;
+	}
 
+	private releaseWorkingVisibility(): void {
+		this.hiddenWorkingVisible = false;
+		if (!this.restoreWorkingVisible) return;
+		try {
+			this.restoreWorkingVisible();
+			this.restoreWorkingVisible = undefined;
+		} catch {
+			// Keep the original setter for a later cleanup attempt, even without row ownership.
+		}
+	}
+
+	private startAnimationTicks(): void {
+		const interval = this.installedPhase?.intervalMs;
+		if (!interval || interval <= 0) {
+			this.stopAnimationTicks();
+			return;
+		}
+		if (this.animationTimer !== undefined && this.animationIntervalMs === interval) return;
+		this.stopAnimationTicks();
+		this.animationIntervalMs = interval;
+		this.animationTimer = setInterval(() => {
+			const ctx = this.placementContext;
+			if (!ctx || !this.reconcilePlacement(ctx)) {
+				this.stopAnimationTicks();
+				return;
+			}
+			this.requestRender();
+		}, interval);
+	}
+
+	private stopAnimationTicks(): void {
+		if (this.animationTimer !== undefined) {
+			clearInterval(this.animationTimer);
+			this.animationTimer = undefined;
+		}
+		this.animationIntervalMs = undefined;
+	}
 	private reconcileElapsedUpdates(ctx: WorkingLineContext): void {
 		this.elapsedUpdatesContext = ctx;
 		const config = this.getConfig().components.workingLine;
@@ -1594,6 +1720,7 @@ export class WorkingLineController {
 		try {
 			ui.setWorkingIndicator(snapshot.indicatorOptions);
 			if (snapshot.ownsMessage) ui.setWorkingMessage("");
+			if (this.placementContext) this.reconcilePlacement(this.placementContext);
 		} catch {
 			// Recovery is deliberately direct rather than recursive. If either setter cannot
 			// restore the last successful public state, release both unkeyed surfaces.
@@ -1611,7 +1738,10 @@ export class WorkingLineController {
 	}
 
 	private releaseAfterFailure(ui: WorkingLineUi): void {
+		this.cancelMetricIndicator();
 		this.deactivateElapsedUpdates();
+		this.stopAnimationTicks();
+		this.releaseWorkingVisibility();
 		if (this.ownsIndicator) {
 			try {
 				ui.setWorkingIndicator();
@@ -1632,14 +1762,17 @@ export class WorkingLineController {
 		this.frameKey = undefined;
 		this.installedPhase = undefined;
 		this.installedIndicatorOptions = undefined;
+		this.installedUi = undefined;
+		this.placementContext = undefined;
 		this.invalidateUnavailableExtensionSegments();
 	}
 
 	private reset(ctx: WorkingLineContext): void {
 		this.cancelMetricIndicator();
 		this.deactivateElapsedUpdates();
-		if (!this.ownsIndicator && !this.ownsMessage) return;
-		const ui = workingLineUi(ctx);
+		this.stopAnimationTicks();
+		this.releaseWorkingVisibility();
+		const ui = this.installedUi ?? workingLineUi(ctx);
 		if (ui && this.ownsIndicator) {
 			try {
 				ui.setWorkingIndicator();
@@ -1660,6 +1793,8 @@ export class WorkingLineController {
 		this.frameKey = undefined;
 		this.installedPhase = undefined;
 		this.installedIndicatorOptions = undefined;
+		this.installedUi = undefined;
+		this.placementContext = undefined;
 	}
 
 	private clearRuntime(): void {

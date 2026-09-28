@@ -58,6 +58,7 @@ import {
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
+	type WorkingLinePlacement,
 	type WorkingLineSpinner,
 	type WorkingLineTextAnimation,
 } from "./config";
@@ -153,6 +154,11 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	...presets.map(({ label }) => label),
 	"Custom…",
 ];
+const workingLinePlacementLabels: Record<WorkingLinePlacement, string> = {
+	above: "Above",
+	border: "Border",
+};
+const workingLinePlacementValues = Object.values(workingLinePlacementLabels);
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
 const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
 	rail: "Rail",
@@ -805,6 +811,16 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 			currentValue: featureValue(workingLine.enabled),
 			values: featureStateValues,
 		},
+		...(config.components.editor.enabled && config.components.editor.style !== "accent-rail"
+			? [
+					{
+						id: "workingLinePlacement",
+						label: "Placement",
+						currentValue: workingLinePlacementLabels[workingLine.placement],
+						values: workingLinePlacementValues,
+					},
+				]
+			: []),
 		{
 			id: "workingLineTurnSummary",
 			label: "Turn summary",
@@ -1833,6 +1849,21 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											settingsList.updateValue(id, newValue);
 											notifyWorkingLineChange("Turn summary", newValue, result, false);
 											return;
+										}
+										if (id === "workingLinePlacement") {
+											const editor = deps.getConfig().components.editor;
+											if (!editor.enabled || editor.style === "accent-rail") return;
+											const placement = (
+												Object.entries(workingLinePlacementLabels) as Array<
+													[WorkingLinePlacement, string]
+												>
+											).find(([, label]) => label === newValue)?.[0];
+											if (placement) {
+												const result = deps.setWorkingLineComponent({ placement }, ctx);
+												settingsList.updateValue(id, newValue);
+												notifyWorkingLineChange("Placement", newValue, result);
+												return;
+											}
 										}
 										const selectedWorkingLineSpinner =
 											id === "workingLineSpinner" ? workingLineSpinnerId(newValue) : undefined;
