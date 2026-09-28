@@ -387,6 +387,43 @@ describe("Sakura thinking message patch", () => {
 });
 
 describe("Sakura + Thinking (Experimental) MouseRegion composition", () => {
+	it.each(["Pi 0.84", "Pi 0.85"])(
+		"refreshes elapsed headers through Sakura without rebuilding %s children",
+		(hostVersion) => {
+			if (hostVersion === "Pi 0.84") installPi84ThinkingRenderer();
+			else installPi85ThinkingRenderer();
+			vi.useFakeTimers();
+			vi.setSystemTime(10_000);
+			const nativeUpdate = vi.fn(prototype.updateContent);
+			prototype.updateContent = nativeUpdate;
+			const host = context();
+			const requestRender = vi.fn();
+			const value = new ThinkingExperimentalController(
+				() => ({ enabled: true, mode: "streaming" }),
+				requestRender,
+				Date.now,
+			);
+			controllers.add(value);
+			expect(value.startSession(host.ctx)).toEqual({ applied: true });
+			installSakura();
+			const assistant = component();
+			assistant.updateContent(message("streaming reasoning"), true);
+			expect(plain(assistant.render(80)).join("\n")).toContain("Thinking 0.0s");
+			const children = [...childrenOf(assistant)];
+			const nativeCalls = nativeUpdate.mock.calls.length;
+			requestRender.mockClear();
+
+			vi.advanceTimersByTime(1_000);
+			expect(requestRender).toHaveBeenCalledTimes(1);
+			expect(nativeUpdate).toHaveBeenCalledTimes(nativeCalls);
+			for (const [index, child] of children.entries())
+				expect(childrenOf(assistant)[index]).toBe(child);
+			const rendered = plain(assistant.render(80)).join("\n");
+			expect(rendered).toContain("Thought trail");
+			expect(rendered).toContain("Thinking 1.0s");
+		},
+	);
+
 	it("keeps the Pi 0.85 MouseRegion as the direct child and expands Streaming from top-level click, Ctrl+T, live rerender, and dispose", () => {
 		installPi85ThinkingRenderer();
 		vi.useFakeTimers();

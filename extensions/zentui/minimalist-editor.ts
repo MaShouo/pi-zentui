@@ -59,6 +59,8 @@ export type MinimalistEditorMetadata = {
 	sessionName?: string;
 	agentDurationMs?: number;
 	agentActive?: boolean;
+	/** Controller-gated border content; never resolve canonical placement in the renderer. */
+	workingLineFrame?: string;
 };
 
 export type MinimalistFrameOptions = {
@@ -183,6 +185,7 @@ function renderTopLeft(
 				: safeThemeFg(uiTheme, "muted", duration),
 		);
 	}
+	if (metadata.workingLineFrame) parts.push(metadata.workingLineFrame);
 	const sessionName = includeSessionName
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
 		: "";
@@ -210,8 +213,9 @@ function renderTopRight(
 ): string {
 	const source = config.components.editor.colorSource;
 	const parts: string[] = [];
+	const separator = config.components.editor.styles.minimalist.separator === "dot" ? " · " : " – ";
 	const joinParts = (values: string[]) =>
-		values.map((part, index) => (index > 0 ? `${renderBorder(" – ")}${part}` : part)).join("");
+		values.map((part, index) => (index > 0 ? `${renderBorder(separator)}${part}` : part)).join("");
 	const cost = config.components.editor.styles.minimalist.showCost
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";
@@ -501,6 +505,7 @@ export function renderMinimalistFrame({
 	const topFallbacks = [
 		joinStyled([topViewport, topOperational], separator),
 		topOperational,
+		...(metadata.workingLineFrame ? [metadata.workingLineFrame] : []),
 	].filter((value, index, values) => value !== topLeft && values.indexOf(value) === index);
 	const top = renderLabeledBorder({
 		width,

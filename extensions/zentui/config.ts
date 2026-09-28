@@ -54,10 +54,12 @@ export type WorkingLineSpinner =
 	| "claude-inspired"
 	| "pulse";
 export type WorkingLineTextAnimation = "classic" | "kitt" | "disabled";
+export type WorkingLinePlacement = "above" | "border";
 export type ThinkingStepsMode = "rail" | "tree" | "streaming";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
+export type MinimalistEditorSeparator = "dash" | "dot";
 export type EditorBorderColorMode = "static" | "adaptive";
 export type CompletionMenuStyle = "native" | "palette";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
@@ -142,6 +144,7 @@ export type MinimalistEditorStyleConfig = {
 	showCacheHit: boolean;
 	showGit: boolean;
 	contextThresholds: ContextThresholds;
+	separator: MinimalistEditorSeparator;
 };
 
 /** Temporary name retained for existing settings consumers. */
@@ -258,6 +261,7 @@ export type WorkingLineComponentConfig = {
 	colorSource: ColorSource;
 	messages: WorkingLineMessagesConfig;
 	segments: WorkingLineSegmentsConfig;
+	placement: WorkingLinePlacement;
 };
 
 export type WorkingLineComponentPatch = Partial<
@@ -498,6 +502,7 @@ const defaultMinimalistStyle: MinimalistEditorStyleConfig = {
 	showCacheHit: false,
 	showGit: true,
 	contextThresholds: { warning: 70, error: 90 },
+	separator: "dash",
 };
 
 const defaultStarshipStyle: StarshipFooterStyleConfig = {
@@ -557,6 +562,7 @@ const defaultComponents: ComponentsConfig = {
 		colorSource: "theme",
 		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
 		segments: { tool: true, elapsed: true, thought: true, tokens: true },
+		placement: "above",
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
@@ -1405,6 +1411,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 					showCacheHit: parseBoolean(minimalist.showCacheHit, defaultMinimalistStyle.showCacheHit),
 					showGit: parseBoolean(minimalist.showGit, defaultMinimalistStyle.showGit),
 					contextThresholds: minimalistThresholds,
+					separator:
+						minimalist.separator === "dash" || minimalist.separator === "dot"
+							? minimalist.separator
+							: defaultMinimalistStyle.separator,
 				},
 			},
 		},
@@ -1466,6 +1476,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				workingLine.textAnimation === "disabled"
 					? workingLine.textAnimation
 					: defaultComponents.workingLine.textAnimation,
+			placement:
+				workingLine.placement === "border"
+					? workingLine.placement
+					: defaultComponents.workingLine.placement,
 			colorSource: parseColorSource(
 				workingLine.colorSource,
 				defaultComponents.workingLine.colorSource,
@@ -1903,6 +1917,7 @@ function applyMinimalistStylePatch(
 	if (patch.showCost !== undefined) style.showCost = patch.showCost;
 	if (patch.showCacheHit !== undefined) style.showCacheHit = patch.showCacheHit;
 	if (patch.showGit !== undefined) style.showGit = patch.showGit;
+	if (patch.separator !== undefined) style.separator = patch.separator;
 	if (patch.contextThresholds !== undefined) {
 		style.contextThresholds = { ...style.contextThresholds, ...patch.contextThresholds };
 	}
@@ -1970,6 +1985,7 @@ export function saveWorkingLineComponentPatch(
 			if (patch.textIntervalMs !== undefined) component.textIntervalMs = patch.textIntervalMs;
 			if (patch.textAnimation !== undefined) component.textAnimation = patch.textAnimation;
 			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+			if (patch.placement !== undefined) component.placement = patch.placement;
 			if (patch.messages?.custom !== undefined) component.messages.custom = patch.messages.custom;
 			if (patch.messages?.values !== undefined) {
 				component.messages.values = normalizeWorkingLineMessages([...patch.messages.values]);

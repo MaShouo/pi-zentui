@@ -4,6 +4,16 @@
 
 Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing or invalid known values fall back to defaults. Unknown fields are ignored at runtime but preserved on disk by component save operations where they are user-owned migration or future-style data.
 
+## Refresh and cache freshness
+
+- Settings telemetry checks file signatures on each demanded sync, including inode, size, modification and change times. Ordinary edits, replacements and trust changes reload the snapshot; untrusted project settings are never inspected. Signature equality assumes normal filesystem metadata updates, not content hashing. Read failures retry.
+- Session usage reuses one event-owned snapshot under Pi's append-only session contract. Session/leaf changes and message, agent, settlement, tree and compaction boundaries refresh totals. Silent same-leaf history edits outside those boundaries are not detected by this fast path; the generic usage helper remains mutation-safe.
+- Repository path rendering uses the latest controlled project refresh. Creating or removing a `.git` marker becomes visible on the next demanded event, explicit or interval refresh, not every render. Disabling polling leaves event/explicit refreshes active.
+- Runtime and package discovery share one asynchronous filesystem snapshot per refresh; manifests are read fresh. Runtime versions retain the bounded 32-project cache, 60-second successful-version lifetime and 5-second failure retry, with marker and environment changes invalidating earlier results.
+- Footer syntax uses a 32-entry exact-format cache. Format and alias edits are observed immediately; theme, width, status and quota output are never cached with syntax.
+
+Disabled, native and unowned surfaces do not demand these probes on behalf of Zentui. Pi and other extensions may perform their own work.
+
 ## Start with minimal overrides
 
 Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer; Working line and Thinking (Experimental) are disabled.
@@ -215,7 +225,8 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
           "contextThresholds": {
             "warning": 70,
             "error": 90
-          }
+          },
+          "separator": "dash"
         }
       }
     },
@@ -236,6 +247,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
     },
     "workingLine": {
       "enabled": false,
+      "placement": "above",
       "turnSummary": true,
       "spinner": "star-bloom",
       "spinnerIntervalMs": 100,
@@ -412,6 +424,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
 - All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, 0.84.4, and 0.85.1. The decorator also duck-types Pi 0.85 thinking `MouseRegion` wrappers; Streaming temporarily clears native per-run visibility overrides so fold/Ctrl+T/left-click expand keep working, while Rail and Tree still follow Pi's hidden state. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.
+- `components.workingLine.placement` (`above | border`) selects the default floating row or the Minimalist/Opencode top border. Accent Rail supports only Above. Disabled, native, unavailable, or unsafe/narrow editors and Pi versions without working-row visibility control fall back to Above without changing saved choices. Legacy `input` normalizes to `above`; the prompt remains available for typing.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden hides its main segments, retaining only allowed extension statuses; an empty status line occupies no rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
@@ -521,7 +534,7 @@ Set `ZENTUI_DEBUG=1` when launching Pi to log the workaround diagnostic without 
 
 Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rounded frame places viewport counts, Bash state, current/completed turn duration, and explicit session name at top left; cost, model, thinking, context, and optional latest-prompt cache hit rate at top right; viewport count plus Git at bottom left; and configured path at bottom right. Unnamed sessions add no placeholder.
 
-Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable.
+Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable. Metadata items are joined with dashes by default (`separator: "dash"`) or dots (`separator: "dot"`).
 
 Autocomplete stays inside the frame when Pi output can be split safely. Unknown third-party layouts fail open. Footer visibility remains independently controlled by `components.footer.style`; Minimalist does not remove Pi's header.
 

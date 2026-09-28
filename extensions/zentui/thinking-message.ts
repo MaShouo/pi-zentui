@@ -1,4 +1,5 @@
-import { AssistantMessageComponent, type Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import { type RGB, renderSakuraGradient, rgbForeground } from "./gradient";
 import { installPrototypePatch } from "./prototype-patch-registry";
@@ -136,7 +137,7 @@ class ThinkingTrailComponent implements Component {
 	readonly [THINKING_TRAIL_COMPONENT] = true;
 
 	constructor(
-		private readonly inner: Component,
+		readonly inner: Component,
 		private readonly getTheme: () => Theme | undefined,
 	) {}
 
@@ -216,6 +217,11 @@ function isThinkingTrailComponent(value: unknown): value is ThinkingTrailCompone
 	);
 }
 
+/** Inspect only our own decoration without rendering or rebuilding its inner component. */
+export function unwrapThinkingTrail(component: Component): Component {
+	return isThinkingTrailComponent(component) ? component.inner : component;
+}
+
 function getThinkingMouseRegion(component: Component): ThinkingMouseRegion | undefined {
 	const region = component as Partial<ThinkingMouseRegion>;
 	if (!region.child || typeof region.handleMouse !== "function") return undefined;
@@ -282,6 +288,8 @@ export function installThinkingMessageStyle(
 	getTheme: () => Theme | undefined,
 	isEnabled: () => boolean,
 ): Cleanup {
+	// Resolve the private renderer only when installing, not when importing the unwrap helper.
+	const { AssistantMessageComponent } = PiCodingAgent;
 	const cleanupContent = installPrototypePatch(
 		AssistantMessageComponent.prototype,
 		"updateContent",

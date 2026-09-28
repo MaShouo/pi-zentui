@@ -129,6 +129,7 @@ describe("canonical config resolution", () => {
 						showCacheHit: false,
 						showGit: true,
 						contextThresholds: { warning: 70, error: 90 },
+						separator: "dash",
 					},
 				},
 			},
@@ -153,6 +154,7 @@ describe("canonical config resolution", () => {
 					values: [...defaultConfig.components.workingLine.messages.values],
 				},
 				segments: { tool: true, elapsed: true, thought: true, tokens: true },
+				placement: "above",
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 			footer: {
@@ -393,6 +395,21 @@ describe("canonical config resolution", () => {
 			).toBe("percent");
 		}
 
+		for (const separator of ["dash", "dot"]) {
+			expect(
+				mergeConfig({
+					components: { editor: { styles: { minimalist: { separator } } } },
+				}).components.editor.styles.minimalist.separator,
+			).toBe(separator);
+		}
+		for (const separator of ["pipe", "", 1, null, true]) {
+			expect(
+				mergeConfig({
+					editorStyles: { minimalist: { separator: "dot" } },
+					components: { editor: { styles: { minimalist: { separator } } } },
+				}).components.editor.styles.minimalist.separator,
+			).toBe("dash");
+		}
 		const valid = mergeConfig({
 			components: {
 				editor: {
@@ -404,6 +421,7 @@ describe("canonical config resolution", () => {
 							showCost: false,
 							showCacheHit: true,
 							showGit: false,
+							separator: "dot",
 						},
 					},
 				},
@@ -416,6 +434,7 @@ describe("canonical config resolution", () => {
 			showCost: false,
 			showCacheHit: true,
 			showGit: false,
+			separator: "dot",
 		});
 
 		const invalid = mergeConfig({
@@ -762,7 +781,20 @@ describe("working-line config", () => {
 			}).components.workingLine.spinnerIntervalMs,
 		).toBe(100);
 	});
-
+	it("normalizes canonical working-line placement and falls back invalid values to above", () => {
+		for (const placement of ["above", "border"] as const) {
+			expect(
+				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
+					.placement,
+			).toBe(placement);
+		}
+		for (const placement of ["input", "below", "", 1, null, true]) {
+			expect(
+				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
+					.placement,
+			).toBe("above");
+		}
+	});
 	it("defaults malformed or missing Turn summary to true and preserves explicit false", () => {
 		expect(mergeConfig({}).components.workingLine.turnSummary).toBe(true);
 		expect(
@@ -834,6 +866,7 @@ describe("working-line config", () => {
 			colorSource: "terminal",
 			messages: { custom: true, values: ["One", "Two"] },
 			segments: { tool: false, elapsed: true, thought: true, tokens: false },
+			placement: "above",
 		});
 		expect(config.colors).toMatchObject({
 			workingLineLow: "fg:240",

@@ -134,6 +134,29 @@ describe("minimalist editor frame", () => {
 		expect(visibleWidth(narrow)).toBeLessThanOrEqual(30);
 	});
 
+	it("renders dotted or dashed metadata separators according to config", () => {
+		const renderWithSeparator = (separator: "dash" | "dot") => {
+			const current = config();
+			current.components.editor.styles.minimalist.separator = separator;
+			return renderMinimalistFrame({
+				width: 120,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: {
+					cwd: "/tmp/project",
+					costLabel: "$0.123",
+					modelLabel: "model-x",
+					thinkingLevel: "high",
+					contextPercent: 42,
+				},
+				uiTheme: theme(),
+				config: current,
+			})[0];
+		};
+
+		expect(renderWithSeparator("dash")).toContain("$0.123 – model-x – high – 42%");
+		expect(renderWithSeparator("dot")).toContain("$0.123 · model-x · high · 42%");
+	});
 	it("uses distinct theme roles for default minimalist metadata", () => {
 		const calls: Array<{ color: string; text: string }> = [];
 		const lines = renderMinimalistFrame({
@@ -908,4 +931,46 @@ it("fits long minimalist metadata without context rather than clearing both labe
 	expect(lines[0]).toContain("$0.123");
 	expect(lines[0]).toContain("model");
 	expect(visibleWidth(lines[0])).toBe(40);
+});
+
+describe("minimalist working line placement", () => {
+	it("renders working line in the top border when placement is border", () => {
+		const current = config();
+		current.components.workingLine.enabled = true;
+		current.components.workingLine.placement = "border";
+		const lines = renderMinimalistFrame({
+			width: 100,
+			editorLines: [""],
+			inputText: "",
+			uiTheme: theme(),
+			config: current,
+			metadata: {
+				cwd: "/tmp",
+				agentActive: true,
+				agentDurationMs: 5000,
+				workingLineFrame: "✧ Zigzagging…",
+			},
+		});
+		expect(lines[0]).toContain("5s · ✧ Zigzagging…");
+	});
+
+	it.each(["", "my prompt"])("preserves input and its cursor during work: %j", (inputText) => {
+		const current = config();
+		const editorLine = `${inputText}\x1b_pi:c\x07\x1b[7m \x1b[27m`;
+		const lines = renderMinimalistFrame({
+			width: 100,
+			editorLines: [editorLine],
+			inputText,
+			uiTheme: theme(),
+			config: current,
+			metadata: {
+				cwd: "/tmp",
+				agentActive: true,
+				workingLineFrame: "✧ Zigzagging…",
+			},
+		});
+		expect(lines[1]).toContain(editorLine);
+		expect(lines[1]).not.toContain("Zigzagging");
+		expect(lines[0]).toContain("Zigzagging");
+	});
 });

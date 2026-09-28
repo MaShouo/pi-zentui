@@ -45,6 +45,7 @@ import {
 	MAX_WORKING_LINE_INTERVAL_MS,
 	MIN_WORKING_LINE_INTERVAL_MS,
 	type MinimalistConfig,
+	type MinimalistEditorSeparator,
 	type ModelLabelSource,
 	type PathDisplayConfig,
 	type PolishedCopyFriendlyEditorStyleConfig,
@@ -57,6 +58,7 @@ import {
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
+	type WorkingLinePlacement,
 	type WorkingLineSpinner,
 	type WorkingLineTextAnimation,
 } from "./config";
@@ -126,6 +128,7 @@ const completionMenuValues: CompletionMenuStyle[] = ["palette", "native"];
 const accentRailSurfaceValues = ["filled", "transparent"];
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
+const minimalistSeparatorValues: MinimalistEditorSeparator[] = ["dash", "dot"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
 const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"];
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
@@ -151,6 +154,11 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	...presets.map(({ label }) => label),
 	"Custom…",
 ];
+const workingLinePlacementLabels: Record<WorkingLinePlacement, string> = {
+	above: "Above",
+	border: "Border",
+};
+const workingLinePlacementValues = Object.values(workingLinePlacementLabels);
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
 const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
 	rail: "Rail",
@@ -728,6 +736,13 @@ function buildMinimalistEditorStyleItems(config: PolishedTuiConfig): SettingItem
 			currentValue: featureValue(minimalist.showGit),
 			values: featureStateValues,
 		},
+		{
+			id: "minimalistSeparator",
+			label: "Separator",
+			description: "Choose dash (–) or dot (·) between editor metadata items.",
+			currentValue: minimalist.separator,
+			values: minimalistSeparatorValues,
+		},
 	];
 }
 
@@ -796,6 +811,16 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 			currentValue: featureValue(workingLine.enabled),
 			values: featureStateValues,
 		},
+		...(config.components.editor.enabled && config.components.editor.style !== "accent-rail"
+			? [
+					{
+						id: "workingLinePlacement",
+						label: "Placement",
+						currentValue: workingLinePlacementLabels[workingLine.placement],
+						values: workingLinePlacementValues,
+					},
+				]
+			: []),
 		{
 			id: "workingLineTurnSummary",
 			label: "Turn summary",
@@ -1745,6 +1770,14 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 													{ contextFormat: newValue as MinimalistConfig["contextFormat"] },
 													ctx,
 												);
+											else if (
+												id === "minimalistSeparator" &&
+												(newValue === "dash" || newValue === "dot")
+											)
+												deps.setMinimalist(
+													{ separator: newValue as MinimalistEditorSeparator },
+													ctx,
+												);
 											else if (enabled !== undefined) {
 												const key =
 													id === "minimalistContextGauge"
@@ -1816,6 +1849,21 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											settingsList.updateValue(id, newValue);
 											notifyWorkingLineChange("Turn summary", newValue, result, false);
 											return;
+										}
+										if (id === "workingLinePlacement") {
+											const editor = deps.getConfig().components.editor;
+											if (!editor.enabled || editor.style === "accent-rail") return;
+											const placement = (
+												Object.entries(workingLinePlacementLabels) as Array<
+													[WorkingLinePlacement, string]
+												>
+											).find(([, label]) => label === newValue)?.[0];
+											if (placement) {
+												const result = deps.setWorkingLineComponent({ placement }, ctx);
+												settingsList.updateValue(id, newValue);
+												notifyWorkingLineChange("Placement", newValue, result);
+												return;
+											}
 										}
 										const selectedWorkingLineSpinner =
 											id === "workingLineSpinner" ? workingLineSpinnerId(newValue) : undefined;
