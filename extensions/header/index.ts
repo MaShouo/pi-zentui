@@ -1,11 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { fgAnsi, getColorMode, type RGB, syncColorMode } from "../shared/color";
+import { fgAnsi, getColorMode, syncColorMode } from "../shared/color";
 
-const SAKURA: RGB = [242, 167, 198];
-const PEACH: RGB = [246, 188, 154];
-const LAVENDER: RGB = [199, 184, 245];
-const SKY: RGB = [159, 211, 242];
+import { sampleSakuraGradient } from "../zentui/gradient";
+
 const LABEL = "◈  SAKURA CYBERDECK  ◈";
 /** Fixed blank rows above the artwork. Deliberately independent of terminal height. */
 export const TOP_PADDING = 1;
@@ -16,7 +14,7 @@ const FG_RESET = "\x1b[39m";
 const BOLD_ON = "\x1b[1m";
 const BOLD_OFF = "\x1b[22m";
 
-function gradient(text: string, from: RGB, to: RGB, bold = false): string {
+function gradient(text: string, bold = false): string {
 	if (getColorMode() === "none") return text;
 	const chars = [...text];
 	if (chars.length === 0) return text;
@@ -29,11 +27,7 @@ function gradient(text: string, from: RGB, to: RGB, bold = false): string {
 			continue;
 		}
 		const t = index / span;
-		const color: RGB = [
-			Math.round(from[0] + (to[0] - from[0]) * t),
-			Math.round(from[1] + (to[1] - from[1]) * t),
-			Math.round(from[2] + (to[2] - from[2]) * t),
-		];
+		const color = sampleSakuraGradient(t);
 		rendered += `${fgAnsi(color)}${char}`;
 	}
 	return bold ? `${BOLD_ON}${rendered}${BOLD_OFF}${FG_RESET}` : `${rendered}${FG_RESET}`;
@@ -53,9 +47,9 @@ const ANIME_ART = [
 
 const ART_WIDTH = Math.max(...ANIME_ART.map((line) => visibleWidth(line)));
 
-/** Centered left padding with an optical nudge, never pushing content past `width`. */
-function centerPad(width: number, contentWidth: number, nudge = 0): string {
-	const pad = Math.floor((width - contentWidth) / 2) + nudge;
+/** Centered left padding never pushing content past `width`. */
+function centerPad(width: number, contentWidth: number): string {
+	const pad = Math.floor((width - contentWidth) / 2);
 	return " ".repeat(Math.max(0, Math.min(width - contentWidth, pad)));
 }
 
@@ -69,7 +63,7 @@ function clipPlain(text: string, maxWidth: number, ellipsis = ""): string {
 }
 
 /**
- * Header lines. Every line fits within `width` display columns and the height is fixed:
+ * Header lines. Every line fits within `width` display columns and the artwork is omitted on narrow screens:
  * it never depends on the terminal's row count.
  */
 export function renderHeader(width: number): string[] {
@@ -77,18 +71,16 @@ export function renderHeader(width: number): string[] {
 	if (!Number.isFinite(w) || w <= 0) return [];
 
 	const artWidth = Math.min(w, ART_WIDTH);
-	const artPad = centerPad(w, artWidth, -2);
-	const art = ANIME_ART.map(
-		(line) => `${artPad}${gradient(clipPlain(line, artWidth), SAKURA, SKY)}`,
-	);
+	const artPad = centerPad(w, artWidth);
+	const art = w < ART_WIDTH ? [] : ANIME_ART.map((line) => `${artPad}${gradient(line)}`);
 
 	// Keep the divider visually subordinate: inset it symmetrically from the artwork.
 	const railInset = artWidth >= 8 ? Math.max(2, Math.round(artWidth * 0.15)) : 0;
 	const railWidth = Math.max(1, artWidth - railInset * 2);
-	const rail = `${centerPad(w, railWidth, 1)}${gradient("━".repeat(railWidth), SAKURA, SKY)}`;
+	const rail = `${centerPad(w, railWidth)}${gradient("━".repeat(railWidth))}`;
 
-	const label = gradient(clipPlain(LABEL, w, "…"), LAVENDER, PEACH, true);
-	const labelLine = `${centerPad(w, visibleWidth(label), 1)}${label}`;
+	const label = gradient(clipPlain(LABEL, w, "…"), true);
+	const labelLine = `${centerPad(w, visibleWidth(label))}${label}`;
 
 	return [...Array<string>(TOP_PADDING).fill(""), ...art, "", rail, labelLine, ""];
 }

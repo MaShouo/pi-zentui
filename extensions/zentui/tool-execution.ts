@@ -9,13 +9,14 @@ import { getColorMode, syncColorMode } from "../shared/color";
 import {
 	rgbForeground as paintFg,
 	type RGB,
-	renderSakuraFrameGradient,
-	renderSakuraSolid,
+	SAKURA_BORDER_RGB,
+	SAKURA_ERROR_RGB,
+	SAKURA_MUTED_RGB,
 } from "./gradient";
 import { installPrototypePatch } from "./prototype-patch-registry";
 
 /**
- * Tool card chrome: sakura gradient title frame + status rail around Pi's own tool rendering.
+ * Tool card chrome: quiet border and status title + status rail around Pi's own tool rendering.
  *
  * Visible body lines are Pi's render output at `width - 3`, passed through byte-for-byte.
  * Collapsed cards show a bounded preview; expanding restores every native row without a cap.
@@ -24,7 +25,7 @@ import { installPrototypePatch } from "./prototype-patch-registry";
  */
 
 type Cleanup = () => void;
-type ToolStatus = "running" | "ok" | "error";
+type ToolStatus = "running" | "ok" | "error" | "cancelled";
 
 /** Private ToolExecutionComponent fields read defensively (present in Pi 0.87.1 and 0.99.1). */
 type ToolExecutionRuntime = {
@@ -51,7 +52,6 @@ type CardRender = {
 	innerWidth: number;
 	status: ToolStatus;
 	expanded: boolean;
-	name: string;
 	// Color mode is part of the cache key: a mode switch must rebuild the frame.
 	colorMode: string;
 	/** Number of leading inner lines kept outside the frame (Pi's spacer row). */
@@ -62,13 +62,15 @@ type CardRender = {
 	lines: string[];
 };
 
-// Theme-independent status hues (sakura-macaron.json roles): sky = running, mint = ok, coral = error.
+// Theme-independent status hues (sakura-macaron.json roles): sky = running, mint = ok,
+// coral = error, butter = cancelled (Pi's native Bash marks a user cancel as a warning, not a failure).
 const STATUS_RGB: Record<ToolStatus, RGB> = {
 	running: [159, 211, 242],
 	ok: [174, 229, 197],
-	error: [255, 143, 163],
+	error: SAKURA_ERROR_RGB,
+	cancelled: [243, 217, 139],
 };
-const FRAME_RGB: RGB = [242, 167, 198];
+const FRAME_RGB = SAKURA_BORDER_RGB;
 const LEFT_RAIL = "┃ ";
 const RIGHT_RAIL = "│";
 const LEFT_COLUMNS = 2; // visible width of LEFT_RAIL
@@ -80,15 +82,6 @@ function toolStatus(runtime: ToolExecutionRuntime): ToolStatus | undefined {
 	if (typeof runtime.isPartial !== "boolean") return undefined; // unknown shape: stay stock
 	if (runtime.isPartial) return "running";
 	return runtime.result?.isError === true ? "error" : "ok";
-}
-
-function toolLabelName(runtime: ToolExecutionRuntime): string {
-	const raw = typeof runtime.toolName === "string" && runtime.toolName ? runtime.toolName : "tool";
-	// Chrome only (never body content): drop control characters so the frame cannot be corrupted.
-	return raw
-		.replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
-		.replaceAll("_", " ")
-		.toUpperCase();
 }
 
 function hasImageResult(runtime: ToolExecutionRuntime): boolean {
@@ -110,10 +103,26 @@ function isFrameable(runtime: ToolExecutionRuntime): boolean {
 	return !hasImageResult(runtime);
 }
 
-function statusText(status: ToolStatus, name: string): string {
-	if (status === "running") return `◆ ${name} · RUNNING`;
-	if (status === "error") return `× ${name} · FAILED`;
-	return `✓ ${name}`;
+function statusText(status: ToolStatus): string {
+	if (status === "running") return "◆ Running";
+	if (status === "error") return "× Failed";
+	if (status === "cancelled") return "× Cancelled";
+	return "✓ Complete";
+}
+
+/** Paint status independently from the quiet frame, including when the label is clipped. */
+function statusFrame(status: ToolStatus, width: number): string {
+	const label = statusText(status);
+	const top = frameTop(label, width);
+	const end = Math.min(3 + label.length, width - 1);
+	const labelRgb =
+		status === "error" || status === "cancelled" ? STATUS_RGB[status] : SAKURA_MUTED_RGB;
+	return (
+		paintFg(FRAME_RGB, top.slice(0, 3)) +
+		paintFg(STATUS_RGB[status], top.slice(3, 4)) +
+		paintFg(labelRgb, top.slice(4, end)) +
+		paintFg(FRAME_RGB, top.slice(end))
+	);
 }
 
 /** `╭─ label ───╮` fitted to exactly `width` cells (label clipped per character, no ellipsis). */
@@ -147,14 +156,13 @@ function buildCard(
 	inner: readonly string[],
 	width: number,
 	status: ToolStatus,
-	name: string,
 	collapse: boolean,
 ): { lines: string[]; prefix: number; bodyEnd: number } {
 	const prefix = inner[0] === "" ? 1 : 0; // Pi's Spacer(1) row stays above the frame
 	const left = paintFg(STATUS_RGB[status], LEFT_RAIL);
 	const right = paintFg(FRAME_RGB, RIGHT_RAIL);
 	const lines: string[] = inner.slice(0, prefix);
-	lines.push(renderSakuraFrameGradient(frameTop(statusText(status, name), width)));
+	lines.push(statusFrame(status, width));
 	const bodyEnd = collapse ? Math.min(inner.length, prefix + TOOL_PREVIEW_ROWS) : inner.length;
 	for (let i = prefix; i < bodyEnd; i++) lines.push(`${left}${inner[i]}${right}`);
 	if (bodyEnd < inner.length) {
@@ -167,7 +175,7 @@ function buildCard(
 			`${left}${hint}${" ".repeat(Math.max(0, width - RAIL_COLUMNS - visibleWidth(hint)))}${right}`,
 		);
 	}
-	lines.push(renderSakuraFrameGradient(frameBottom(width)));
+	lines.push(paintFg(FRAME_RGB, frameBottom(width)));
 	return { lines, prefix, bodyEnd };
 }
 
@@ -238,7 +246,6 @@ export function installToolExecutionStyle(
 				return Reflect.apply(predecessor, receiver, args);
 			}
 			const expanded = runtime.expanded === true;
-			const name = toolLabelName(runtime);
 			// Keep the shared mode in step with the host theme (no owner/source coupling).
 			syncColorMode(getTheme());
 			const colorMode = getColorMode();
@@ -248,7 +255,6 @@ export function installToolExecutionStyle(
 				cached.width === width &&
 				cached.status === status &&
 				cached.expanded === expanded &&
-				cached.name === name &&
 				cached.colorMode === colorMode &&
 				sameLines(cached.inner, lines)
 			) {
@@ -259,7 +265,6 @@ export function installToolExecutionStyle(
 				lines,
 				width,
 				status,
-				name,
 				runtime.expanded === false && typeof runtime.setExpanded === "function",
 			);
 			cards.set(receiver as object, {
@@ -267,7 +272,6 @@ export function installToolExecutionStyle(
 				innerWidth,
 				status,
 				expanded,
-				name,
 				colorMode,
 				prefix: card.prefix,
 				bodyEnd: card.bodyEnd,
@@ -324,24 +328,27 @@ export function installToolExecutionStyle(
 				},
 			);
 
-		// Bash uses its own component — gradient the chrome, keep streaming body.
+		// Bash uses its own component — share status chrome, keep streaming body.
 		cleanupBash = installPrototypePatch(
 			BashExecutionComponent.prototype,
 			"render",
 			"bash-execution-render",
 			({ predecessor, receiver, args }) => {
 				const width = args[0];
-				if (!isEnabled() || typeof width !== "number" || width <= 4) {
+				if (!isEnabled() || typeof width !== "number" || width < MIN_WIDTH) {
 					return Reflect.apply(predecessor, receiver, args);
 				}
 				// Reserve side rails before Pi wraps output; let Pi own collapse/expand.
-				const rendered = Reflect.apply(predecessor, receiver, [width - 2, ...args.slice(1)]);
+				const rendered = Reflect.apply(predecessor, receiver, [
+					width - RAIL_COLUMNS,
+					...args.slice(1),
+				]);
 				if (!Array.isArray(rendered) || !rendered.every((line) => typeof line === "string")) {
 					return rendered;
 				}
 				const lines = rendered as string[];
 				// Very narrow native components may exceed their requested width. Do not crop content.
-				if (lines.some((line) => visibleWidth(line) > width - 2)) {
+				if (lines.some((line) => visibleWidth(line) > width - RAIL_COLUMNS)) {
 					return Reflect.apply(predecessor, receiver, args);
 				}
 				const plains = lines.map(stripAnsi);
@@ -358,21 +365,20 @@ export function installToolExecutionStyle(
 					return Reflect.apply(predecessor, receiver, args);
 				}
 				const status = (receiver as { status?: string }).status;
-				const label =
-					status === "running"
-						? "◆ BASH · RUNNING"
-						: status === "error"
-							? "× BASH · FAILED"
-							: status === "cancelled"
-								? "× BASH · CANCELLED"
-								: "✓ BASH · COMPLETE";
-				const rail = renderSakuraSolid("│");
+				if (!["running", "error", "cancelled", "complete"].includes(status ?? "")) {
+					return Reflect.apply(predecessor, receiver, args);
+				}
+				const cardStatus: ToolStatus =
+					status === "running" || status === "error" || status === "cancelled" ? status : "ok";
+				syncColorMode(getTheme());
+				const left = paintFg(STATUS_RGB[cardStatus], LEFT_RAIL);
+				const right = paintFg(FRAME_RGB, RIGHT_RAIL);
 				return lines.map((line, index) => {
 					if (index < top || index > bottom) return line;
-					if (index === top) return renderSakuraFrameGradient(frameTop(label, width));
-					if (index === bottom) return renderSakuraFrameGradient(frameBottom(width));
-					// Preserve native ANSI, indentation and content; the predecessor wrapped at width - 2.
-					return `${rail}${line}${" ".repeat(Math.max(0, width - 2 - visibleWidth(line)))}${rail}`;
+					if (index === top) return statusFrame(cardStatus, width);
+					if (index === bottom) return paintFg(FRAME_RGB, frameBottom(width));
+					// Preserve native ANSI, indentation and content; the predecessor wrapped at width - RAIL_COLUMNS.
+					return `${left}${line}${" ".repeat(Math.max(0, width - RAIL_COLUMNS - visibleWidth(line)))}${right}`;
 				});
 			},
 		);

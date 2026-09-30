@@ -45,7 +45,12 @@ import {
 	formatUsernameHostLabel,
 	resolveContextUsage,
 } from "./format";
-import { isSakuraMacaronVisuals, pulsePhase, renderSakuraGradient } from "./gradient";
+import {
+	isSakuraMacaronVisuals,
+	renderSakuraSolid,
+	rgbForeground,
+	SAKURA_BORDER_RGB,
+} from "./gradient";
 import { resolveRuntimeSymbol } from "./icons";
 import type { LiveContextOverride } from "./live-context";
 import { type FooterState, modelLabelFor } from "./state";
@@ -274,7 +279,8 @@ export function installFooter(
 				const iconMode = config.icons.effectiveMode;
 				// Auto chooses safe icon glyphs, not whether Sakura chrome is Unicode.
 				const asciiChrome = sakuraVisuals ? config.icons.mode === "ascii" : iconMode === "ascii";
-				const phase = pulsePhase();
+				// Footer has no animation clock: identical state must render identical bytes.
+				const phase = 0;
 				const pathDisplay = config.components.footer.styles.starship.pathDisplay;
 				const formattedCwd = sanitizeEditorMetadataText(
 					formatCwdLabel(ctx.cwd, config.icons.cwd, {
@@ -311,7 +317,7 @@ export function installFooter(
 				const separator = sakuraVisuals
 					? config.components.footer.styles.starship.separator === "none"
 						? separatorRaw
-						: renderSakuraGradient(separatorRaw, phase * 0.5)
+						: rgbForeground(SAKURA_BORDER_RGB, separatorRaw)
 					: renderStyleForSource(
 							theme,
 							colorSource,
@@ -321,7 +327,7 @@ export function installFooter(
 				const innerWidth = Math.max(1, width - 2);
 				const cwdLabel =
 					sakuraVisuals && !asciiChrome
-						? renderSakuraGradient(formattedCwd, phase * 0.25)
+						? renderSakuraSolid(formattedCwd)
 						: renderStyleForSource(
 								theme,
 								colorSource,
@@ -535,7 +541,7 @@ export function installFooter(
 								config.icons.osOverridden,
 							);
 							return sakuraVisuals && !asciiChrome
-								? renderSakuraGradient(osLabel, (phase + 0.4) % 1)
+								? renderSakuraSolid(osLabel)
 								: renderStyleForSource(
 										theme,
 										colorSource,
@@ -767,7 +773,7 @@ export function installFooter(
 				);
 				const osSegment = config.components.footer.styles.starship.segments.os
 					? sakuraVisuals && !asciiChrome
-						? renderSakuraGradient(osPlain, (phase + 0.4) % 1)
+						? renderSakuraSolid(osPlain)
 						: renderStyleForSource(
 								theme,
 								colorSource,

@@ -5,7 +5,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
-import { isSakuraMacaronVisuals, renderSakuraFrameGradient } from "./gradient";
+import {
+	isSakuraMacaronGradient,
+	isSakuraMacaronVisuals,
+	renderSakuraFrameGradient,
+	rgbForeground,
+	SAKURA_BORDER_RGB,
+} from "./gradient";
 import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
 import {
 	EDITOR_BORDER_FALLBACK,
@@ -34,8 +40,12 @@ function renderBorderLine(
 ): string {
 	const text = "─".repeat(Math.max(1, width));
 	if (theme && config) {
-		if (isSakuraMacaronVisuals(componentColor(config, "selectorBorders", "border"), theme)) {
-			return renderSakuraFrameGradient(text);
+		const configured = componentColor(config, "selectorBorders", "border");
+		if (isSakuraMacaronVisuals(configured, theme)) {
+			// An explicit gradient marker keeps its gradient; the theme default stays quiet.
+			return isSakuraMacaronGradient(configured)
+				? renderSakuraFrameGradient(text)
+				: rgbForeground(SAKURA_BORDER_RGB, text);
 		}
 		return renderStyleForSourceOrFallback(
 			theme,

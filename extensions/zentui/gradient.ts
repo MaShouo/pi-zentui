@@ -18,11 +18,14 @@ export function isSakuraMacaronVisuals(
 
 export const SAKURA_MACARON_STOPS: readonly RGB[] = [
 	[242, 167, 198], // sakura pink  #F2A7C6
-	[252, 201, 185], // sakura-iro   #FCC9B9
 	[239, 195, 230], // petal        #EFC3E6
 	[199, 184, 245], // lavender     #C7B8F5
 	[159, 211, 242], // sky macaron  #9FD3F2
 ];
+
+export const SAKURA_ERROR_RGB: RGB = [255, 107, 122]; // #FF6B7A
+export const SAKURA_BORDER_RGB: RGB = [110, 88, 120]; // #6E5878
+export const SAKURA_MUTED_RGB: RGB = [169, 155, 174]; // #A99BAE
 
 const RESET = "\x1b[39m";
 const GRADIENT_CACHE_LIMIT = 256;
@@ -162,7 +165,7 @@ export function renderSakuraSolid(text: string, position = 0): string {
 export type GaugeTier = "normal" | "warning" | "error";
 
 const GAUGE_STOPS: Record<GaugeTier, readonly RGB[]> = {
-	// healthy: sakura → peach → lavender → sky
+	// healthy: sakura → petal → lavender → sky
 	normal: SAKURA_MACARON_STOPS,
 	// warning: stay warm (peach → butter). Do NOT end on sakura or it looks "healthy".
 	warning: [
@@ -171,13 +174,8 @@ const GAUGE_STOPS: Record<GaugeTier, readonly RGB[]> = {
 		[243, 217, 139], // butter
 		[230, 190, 100], // deeper butter
 	],
-	// error: rose → coral only (no sakura pink start that confuses with normal)
-	error: [
-		[255, 176, 196], // soft rose
-		[255, 160, 180],
-		[255, 143, 163], // coral
-		[232, 120, 150], // deeper rose
-	],
+	// error: saturated red family, distinct from the sakura accent
+	error: [[255, 135, 145], SAKURA_ERROR_RGB, [240, 90, 108]],
 };
 
 const GAUGE_TRACK: RGB = [180, 168, 184]; // soft lilac track, readable on light + dark
@@ -219,7 +217,7 @@ export function renderMacaronGauge(
 				// solid butter — no pink end that looks "healthy" at high fill
 				base = [243, 217, 139];
 			} else if (tier === "error") {
-				base = [255, 143, 163]; // solid coral
+				base = SAKURA_ERROR_RGB; // solid error red
 			} else {
 				const pos = cells <= 1 ? 0 : i / Math.max(1, filled - 1);
 				base = sampleStops(stops, pos, phase * 0.2);

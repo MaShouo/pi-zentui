@@ -74,8 +74,8 @@ describe("renderHeader", () => {
 		assert.deepEqual(renderHeader(Number.NaN), []);
 	});
 
-	test("height is fixed and never grows with the terminal row count", () => {
-		const heights = new Set([20, 40, 65, 120].map((width) => renderHeader(width).length));
+	test("wide height is fixed and never grows with the terminal row count", () => {
+		const heights = new Set([100, 120, 200].map((width) => renderHeader(width).length));
 		assert.equal(heights.size, 1, "header height changed with width");
 
 		const wide = renderHeader(120);
@@ -369,4 +369,24 @@ describe("sakura-macaron theme additions", () => {
 			}
 		}
 	});
+});
+
+test("hides artwork rather than cropping it on narrow screens and shares one centerline", () => {
+	const narrow = renderHeader(40).map(strip);
+	expect(narrow.join("\n")).not.toContain("⣿");
+	expect(narrow.join("\n")).toContain("SAKURA CYBERDECK");
+	const wide = renderHeader(120).map(strip);
+	const art = wide.filter((line) => line.includes("⣿"));
+	const widestArt = art.reduce((a, b) =>
+		visibleWidth(a.trimStart()) > visibleWidth(b.trimStart()) ? a : b,
+	);
+	const rail = wide.find((line) => line.includes("━")) ?? "";
+	const label = wide.find((line) => line.includes("SAKURA CYBERDECK")) ?? "";
+	const center = (line: string) => {
+		const padding = line.length - line.trimStart().length;
+		return padding + visibleWidth(line.trimStart()) / 2;
+	};
+	for (const line of [widestArt, rail, label])
+		expect(Math.abs(center(line) - 60)).toBeLessThanOrEqual(0.5);
+	expect(narrow.length).toBeLessThan(wide.length);
 });

@@ -20,10 +20,10 @@ describe("Sakura Bash frame", () => {
 			try {
 				bash.appendOutput(`${"─".repeat(12)}\n$ literal output\nRunning...\n中文🙂 end`);
 				for (const [exitCode, cancelled, label] of [
-					[undefined, false, "RUNNING"],
-					[0, false, "COMPLETE"],
-					[1, false, "FAILED"],
-					[0, true, "CANCELLED"],
+					[undefined, false, "Running"],
+					[0, false, "Complete"],
+					[1, false, "Failed"],
+					[0, true, "Cancelled"],
 				] as const) {
 					if (exitCode !== undefined) bash.setComplete(exitCode, cancelled);
 					for (const width of [5, 24, 80]) {
@@ -36,10 +36,10 @@ describe("Sakura Bash frame", () => {
 						expect(lines[1]).toMatch(/^╭.*╮$/);
 						expect(lines.at(-1)).toMatch(/^╰─+╯$/);
 						for (const line of lines.slice(1)) expect(visibleWidth(line)).toBe(width);
-						for (const line of lines.slice(2, -1)) expect(line).toMatch(/^│.*│$/);
+						for (const line of lines.slice(2, -1)) expect(line).toMatch(/^┃ .*│$/);
 						if (width === 80) {
 							expect(lines[1]).toContain(label);
-							expect(lines.filter((line) => line.includes("BASH"))).toHaveLength(1);
+							expect(lines.filter((line) => line.includes("BASH"))).toHaveLength(0);
 							expect(lines.join("\n")).toContain("$ literal output");
 							expect(lines.join("\n")).toContain("─".repeat(12));
 							expect(lines.join("\n")).toContain("中文🙂 end");
@@ -77,4 +77,19 @@ describe("Sakura Bash frame", () => {
 		}
 		expect(bash.render(80)).toEqual(native);
 	});
+});
+
+it("leaves an unknown private Bash status native rather than claiming success", () => {
+	const bash = new BashExecutionComponent("ls", ui);
+	bash.setComplete(0, false);
+	(bash as unknown as { status: string }).status = "future-state";
+	const cleanup = installToolExecutionStyle(
+		() => undefined,
+		() => true,
+	);
+	try {
+		expect(bash.render(80)).toEqual(nativeRender.call(bash, 80));
+	} finally {
+		cleanup();
+	}
 });

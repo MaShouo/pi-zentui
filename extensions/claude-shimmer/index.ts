@@ -15,7 +15,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { fgAnsi, getColorMode, paintFg, type RGB, syncColorMode } from "../shared/color";
 import { loadConfig } from "../zentui/config";
-import { splitGraphemes } from "../zentui/gradient";
+import { SAKURA_MACARON_STOPS, splitGraphemes } from "../zentui/gradient";
 
 type SpinnerMode = "requesting" | "thinking" | "responding" | "tool-input" | "tool-use";
 export type RunOutcome = "completed" | "aborted" | "error";
@@ -264,15 +264,15 @@ const COMPLETION_VERBS = [
 // ─── Palette (sakura-macaron theme vars) ──────────────────────────
 
 const SAKURA: RGB = [242, 167, 198]; // #F2A7C6
-const PEACH: RGB = [246, 188, 154]; // #F6BC9A
 const PETAL: RGB = [239, 195, 230]; // #EFC3E6
 const LAVENDER: RGB = [199, 184, 245]; // #C7B8F5
 const SKY: RGB = [159, 211, 242]; // #9FD3F2
 const MINT: RGB = [174, 229, 197]; // #AEE5C5
-const CORAL: RGB = [255, 143, 163]; // #FF8FA3
+// Decorative stall/effort tint, not an error indicator. Keep distinct from error red.
+const ROSE: RGB = [255, 143, 163]; // #FF8FA3
 const MUTED: RGB = [169, 155, 174]; // #A99BAE
 const HIGHLIGHT: RGB = [255, 248, 252]; // petal white
-const SWEEP_STOPS: readonly RGB[] = [SAKURA, PEACH, PETAL, LAVENDER, SKY];
+const SWEEP_STOPS: readonly RGB[] = SAKURA_MACARON_STOPS;
 
 // Claude-style ping-pong spinner glyphs.
 const GLYPHS = ["·", "✢", "✳", "✶", "✻", "✽"];
@@ -517,7 +517,7 @@ export function colorSweep(
 	frame: number,
 	reverse: boolean,
 	tint = 0,
-	tintColor: RGB = CORAL,
+	tintColor: RGB = ROSE,
 ): string {
 	const chars = splitGraphemes(text);
 	const pos = sweepPosition(chars.length, frame, reverse);
@@ -549,7 +549,7 @@ const EFFORT_TAGS: Record<string, { tag: string; color: RGB }> = {
 	medium: { tag: "MEDIUM", color: PETAL },
 	high: { tag: "HIGH", color: SAKURA },
 	xhigh: { tag: "XHIGH", color: LAVENDER },
-	max: { tag: "MAX", color: CORAL },
+	max: { tag: "MAX", color: ROSE },
 };
 
 const SUBAGENT_TOOL_NAMES = new Set(["subagent", "subagents"]);
@@ -706,7 +706,7 @@ export default function claudeShimmer(pi: ExtensionAPI) {
 			const pulse = (Math.sin(((now - toolStart) / TOOL_PULSE_PERIOD_MS) * Math.PI * 2) + 1) / 2;
 			verbText = colorSweep(text, tick, reverse, 0.25 + pulse * 0.5, MINT);
 		} else {
-			verbText = colorSweep(text, tick, reverse, stallAmount(now), CORAL);
+			verbText = colorSweep(text, tick, reverse, stallAmount(now), ROSE);
 		}
 
 		const parts: string[] = [];

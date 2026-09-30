@@ -78,7 +78,7 @@ test("expanded tool card passes Pi's body lines through byte-for-byte inside the
 
 	assert.equal(out[0], "", "Pi's spacer row stays above the frame");
 	assert.equal(out.length, inner.length + 2, "only a title row and a bottom row are added");
-	assert.match(strip(out[1] ?? ""), /^╭─ ✓ READ FILE ─+╮$/);
+	assert.match(strip(out[1] ?? ""), /^╭─ ✓ Complete ─+╮$/);
 	assert.match(strip(out.at(-1) ?? ""), /^╰─+╯$/);
 	for (let i = 1; i < inner.length; i++) {
 		const line = out[i + 1] ?? "";
@@ -102,16 +102,16 @@ test("expanded tool card passes Pi's body lines through byte-for-byte inside the
 test("tool status comes from component state, not body text", () => {
 	const failed = makeTool({ body: "Successfully wrote everything" });
 	finish(failed, true);
-	assert.match(strip(failed.render(50)[1] ?? ""), /× READ FILE · FAILED/);
+	assert.match(strip(failed.render(50)[1] ?? ""), /× Failed/);
 
 	const ok = makeTool({ body: "error: looks bad but is fine" });
 	finish(ok, false);
-	assert.match(strip(ok.render(50)[1] ?? ""), /✓ READ FILE/);
+	assert.match(strip(ok.render(50)[1] ?? ""), /✓ Complete/);
 
 	const running = makeTool();
-	assert.match(strip(running.render(50)[1] ?? ""), /◆ READ FILE · RUNNING/);
+	assert.match(strip(running.render(50)[1] ?? ""), /◆ Running/);
 	running.updateResult({ content: [{ type: "text", text: "partial" }], isError: false }, true);
-	assert.match(strip(running.render(50)[1] ?? ""), /RUNNING/);
+	assert.match(strip(running.render(50)[1] ?? ""), /Running/);
 });
 
 test("expanded tool output is not capped", () => {
@@ -133,7 +133,7 @@ test("settled tool card is cached (same array while nothing changed)", () => {
 	assert.notEqual(tool.render(71), first);
 	finish(tool, true);
 	const failed = tool.render(71);
-	assert.match(strip(failed[1] ?? ""), /FAILED/);
+	assert.match(strip(failed[1] ?? ""), /Failed/);
 });
 
 test("self-rendered tools stay stock", () => {

@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fgAnsi, setColorMode } from "../extensions/shared/color";
 import type { ThinkingStepsComponentConfig } from "../extensions/zentui/config";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import { ThinkingExperimentalController } from "../extensions/zentui/thinking-experimental";
@@ -54,6 +55,7 @@ afterEach(() => {
 	prototype.render = originalRender;
 	delete (prototype as unknown as Record<PropertyKey, unknown>)[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 	vi.useRealTimers();
+	setColorMode("truecolor");
 });
 
 function stripAnsi(text: string): string {
@@ -505,5 +507,91 @@ describe("Sakura + Thinking (Experimental) MouseRegion composition", () => {
 		const output = plain(assistant.render(80)).join("\n");
 		expect(output).toContain("Thought trail");
 		expect(output).toContain("Bare markdown");
+	});
+});
+
+describe("Sakura thinking readability", () => {
+	it("shows every visible row after native hide/show and fullscreen clicks", () => {
+		installSakura();
+		const assistant = component();
+		const reasoning = Array.from({ length: 45 }, (_, i) => `thinking row ${i + 1}  `).join("\n");
+		assistant.updateContent(message(reasoning, 1000, "Final answer"));
+		const assertFull = () => {
+			const output = plain(assistant.render(80)).join("\n");
+			for (let i = 1; i <= 45; i++) expect(output).toContain(`thinking row ${i}`);
+			expect(output).toContain("Final answer");
+			expect(output).not.toContain("more · Ctrl+T");
+		};
+		assertFull();
+		assistant.setHideThinkingBlock(true);
+		expect(plain(assistant.render(80)).join("\n")).not.toContain("thinking row 45");
+		assistant.setHideThinkingBlock(false);
+		assertFull();
+		clickDirectThinkingChild(assistant);
+		expect(plain(assistant.render(80)).join("\n")).not.toContain("thinking row 45");
+		clickDirectThinkingChild(assistant);
+		assertFull();
+	});
+
+	it.each(["truecolor", "256color", "none"] as const)(
+		"tints native ANSI thinking without losing emphasis or links (%s)",
+		(mode) => {
+			setColorMode(mode);
+			const link = "]8;;https://example.comlink]8;;";
+			const source = `[1m[38;2;247;238;248mbright[0m ${link}`;
+			const inner: Component = { render: () => [source], invalidate() {} };
+			const instance = {
+				contentContainer: { children: [{ render: () => [], invalidate() {} }, inner] },
+				hideThinkingBlock: false,
+			};
+			prototype.updateContent = () => {};
+			sakuraCleanups.push(
+				installThinkingMessageStyle(
+					() => ({ ...theme(), italic: (text: string) => `\x1b[3m${text}\x1b[23m` }) as Theme,
+					() => true,
+				),
+			);
+			prototype.updateContent.call(instance, { content: [{ type: "thinking", thinking: "body" }] });
+			const output = instance.contentContainer.children[1]?.render(80).join("\n") ?? "";
+			expect(output).toContain(link);
+			expect(output).toContain("[1m");
+			if (mode !== "none") {
+				// Explicit native colors win; the tint only resumes after a foreground reset.
+				expect(output).toContain("\x1b[38;2;247;238;248mbright");
+				expect(output).not.toContain(`${fgAnsi([169, 155, 174])}bright`);
+				expect(output).toContain(`[0m${fgAnsi([169, 155, 174])} `);
+			} else {
+				// Native styles belong to Pi; Sakura must not introduce additional color SGR.
+				expect(output.match(/\x1b\[(?:38|48)[;:][0-9;:]*m/g)).toEqual(
+					source.match(/\x1b\[(?:38|48)[;:][0-9;:]*m/g),
+				);
+			}
+		},
+	);
+
+	it("keeps inline code color and literal bracket text while resuming the tint after resets", () => {
+		setColorMode("truecolor");
+		const tint = fgAnsi([169, 155, 174]);
+		const code = "\x1b[38;2;246;188;154m";
+		// 38;5;0 carries a literal 0 argument; it is a color, not a reset.
+		const source = `use ${code}fetch()\x1b[39m then \x1b[38;5;0mblack\x1b[39m, not [0m text`;
+		const inner: Component = { render: () => [source], invalidate() {} };
+		const instance = {
+			contentContainer: { children: [{ render: () => [], invalidate() {} }, inner] },
+			hideThinkingBlock: false,
+		};
+		prototype.updateContent = () => {};
+		sakuraCleanups.push(
+			installThinkingMessageStyle(
+				() => theme(),
+				() => true,
+			),
+		);
+		prototype.updateContent.call(instance, { content: [{ type: "thinking", thinking: "body" }] });
+		const output = instance.contentContainer.children[1]?.render(80).join("\n") ?? "";
+		expect(output).toContain(`${code}fetch()`);
+		expect(output).toContain(`\x1b[39m${tint} then`);
+		expect(output).toContain("\x1b[38;5;0mblack");
+		expect(output).toContain(", not [0m text");
 	});
 });

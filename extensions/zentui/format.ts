@@ -426,7 +426,7 @@ export function buildContextGauge(
 	if (options.sakura) {
 		return renderMacaronGauge(clamped, width, {
 			ascii,
-			phase: options.phase,
+			phase: options.phase ?? 0,
 			frame: false,
 			tier: options.tier,
 		});

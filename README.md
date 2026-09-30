@@ -2,22 +2,22 @@
 
 A Sakura Macaron visual pack for [Pi](https://pi.dev), built on the full Zentui experience.
 
-This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, gradient chrome, tool cards, and thinking trails.
+This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, focused gradient accents, quiet tool cards, and thinking trails.
 
 ## What's inside
 
 | Piece | Role |
 | --- | --- |
 | **Zentui** | Upstream editor, user-message styles, and Starship footer |
-| **Theme** `sakura-macaron` | Truecolor Sakura, peach, lavender, sky, mint, butter, and coral palette |
+| **Theme** `sakura-macaron` | Sakura, peach, lavender, sky, mint, butter, and distinct coral-red errors |
 | **Header** | Responsive Sakura Cyberdeck startup art |
 | **Matrix** | Pastel digital-rain widget shown while Pi is working |
 | **Claude shimmer** | Sakura fallback spinner with a macaron sweep, effort HUD, tokens, and elapsed time; it yields the row to Zentui Working line when that upstream feature is enabled |
-| **Transcript chrome** | Sakura tool cards and compact thinking trails |
+| **Transcript chrome** | Quiet status-colored tool cards and muted thinking trails |
 
 Matrix owns only its widget. Claude shimmer uses Pi's working message and indicator only while Zentui's upstream Working line is disabled; when enabled, Working line owns and styles the complete row, so the two modes do not overwrite one another.
 
-Tool cards preserve Pi's rendered body, including ANSI highlighting and indentation. Collapsed cards show at most eight native body rows plus an expansion hint, so long commands (including codemode scripts and write payloads) do not fill the transcript. Pi's tool expansion shortcut or clicking the hint in fullscreen restores all native rows, with no extra expanded-output cap. Self-rendered tools (including edit) and image results remain native. The `!cmd` frame likewise preserves native output. Sakura gradients, Header, Matrix, and shimmer respect the host color mode, fall back to 256 colors, and omit their color escapes with `NO_COLOR`. Header padding is fixed rather than growing with terminal height.
+Tool cards preserve Pi's rendered body, including ANSI highlighting and indentation. Collapsed cards show at most eight native body rows plus an expansion hint, so long commands (including codemode scripts and write payloads) do not fill the transcript. Pi's tool expansion shortcut or clicking the hint in fullscreen restores all native rows, with no extra expanded-output cap. Self-rendered tools (including edit) and image results remain native. The `!cmd` frame likewise preserves native output. Both card types use status-only titles (`◆ Running`, `✓ Complete`, `× Failed`; `× Cancelled` in the warning color for cancelled Bash), status-colored left rails, and subdued borders; the native body already identifies the tool or command. Sakura gradients, Header, Matrix, and shimmer respect the host color mode, fall back to 256 colors, and omit their color escapes with `NO_COLOR`. Header padding is fixed rather than growing with terminal height; art, divider, and title share a centerline, and narrow terminals show only the divider and title. Visible thinking has no additional Sakura preview cap: Pi's configured thinking-toggle action (Ctrl+T by default) and native fullscreen clicks show/hide the complete native block. Thinking text is muted, while Markdown emphasis, links, and explicit colors such as inline code remain intact.
 
 - **Editor** — Opencode, Opencode copy-friendly, Accent Rail, and Minimalist input treatments
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
@@ -98,7 +98,7 @@ Zentui detects a broad set of runtime and language modules, preserves Nerd Font 
 
 ## Configure
 
-Sakura frames follow the bundled `sakura-macaron` theme. Set `components.editor.colors.border`, `components.userMessages.colors.border`, or `components.selectorBorders.colors.border` to `sakura-macaron-gradient` to opt into gradient frames per surface with another theme; set an ordinary border color to override the theme gradient on that surface. Shared `colors.editorBorder` remains a legacy Editor/User-message fallback and the marker for Sakura transcript and Footer accents.
+Sakura visuals follow the bundled `sakura-macaron` theme. Gradients frame the Header, current Editor, and User messages; by default, selectors and tool cards use quiet borders. The Footer directory is solid sakura, separators use the quiet border color, and its gauge is static between state changes. Set `components.editor.colors.border`, `components.userMessages.colors.border`, or `components.selectorBorders.colors.border` to the existing `sakura-macaron-gradient` marker to opt into gradient frames on that surface, with this theme or another; set an ordinary border color to override the Sakura treatment on that surface. Shared `colors.editorBorder` remains a legacy Editor/User-message fallback and the marker for Sakura transcript and Footer accents.
 
 Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or saved Starship placement/color preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 

@@ -7,12 +7,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
-import {
-	isSakuraMacaronVisuals,
-	renderSakuraFrameGradient,
-	renderSakuraGradient,
-	renderSakuraSolid,
-} from "./gradient";
+import { isSakuraMacaronVisuals, renderSakuraFrameGradient, renderSakuraSolid } from "./gradient";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -96,7 +91,7 @@ function fillLine(content: string, width: number): string {
 
 function accent(theme: Theme | undefined, config: ZentuiConfig, text: string): string {
 	if (isSakuraMacaronVisuals(componentColor(config, "userMessages", "border"), theme))
-		return renderSakuraGradient(text);
+		return renderSakuraSolid(text);
 	return theme
 		? renderStyleForSourceOrFallbackStrict(
 				theme,
@@ -109,6 +104,7 @@ function accent(theme: Theme | undefined, config: ZentuiConfig, text: string): s
 }
 
 function border(theme: Theme | undefined, config: ZentuiConfig, text: string): string {
+	// User messages keep the Sakura gradient frame both by theme default and by explicit marker.
 	if (isSakuraMacaronVisuals(componentColor(config, "userMessages", "border"), theme)) {
 		return renderSakuraFrameGradient(text);
 	}
@@ -134,7 +130,7 @@ function renderFramed(input: UserMessageStyleRenderInput): string[] {
 	const rightRail =
 		isSakuraMacaronVisuals(componentColor(config, "userMessages", "border"), theme) &&
 		config.icons.rail.length > 0
-			? ` ${renderSakuraSolid(config.icons.rail)}`
+			? ` ${border(theme, config, config.icons.rail)}`
 			: "";
 	const chromeWidth = visibleWidth(rail) + visibleWidth(rightRail);
 	const contentWidth = Math.max(1, width - chromeWidth);

@@ -137,3 +137,12 @@ describe("Sakura gradient color modes", () => {
 		expect(renderMacaronGauge(60, 6)).not.toContain("\x1b[0m");
 	});
 });
+
+it("uses only the monotonic pink-to-sky stops", () => {
+	expect(SAKURA_MACARON_STOPS).toEqual([
+		[242, 167, 198],
+		[239, 195, 230],
+		[199, 184, 245],
+		[159, 211, 242],
+	]);
+});

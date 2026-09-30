@@ -1,7 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import { type RGB, renderSakuraGradient, rgbForeground } from "./gradient";
+import { fgAnsi } from "../shared/color";
+import { renderSakuraSolid, rgbForeground, SAKURA_BORDER_RGB, SAKURA_MUTED_RGB } from "./gradient";
 import { installPrototypePatch } from "./prototype-patch-registry";
 
 type Cleanup = () => void;
@@ -28,12 +29,11 @@ type ThinkingMouseRegion = Component & {
 /**
  * Hybrid thinking chrome:
  * - Claude: no full-width card, dim+italic body, quiet collapse
- * - Sakura: gradient ✦ / ◇ / THINKING label, tree rails, soft body tint
+ * - Sakura: solid ✦ / ◇ / Thought label, tree rails, soft body tint
  * - User request: tree rails ├─ / │ / ╰─
  */
 const MAX_BODY_WIDTH = 100;
-const MAX_PREVIEW_LINES = 16;
-const BODY_TINT: RGB = [216, 202, 220]; // soft petal-lilac body
+const BODY_TINT = SAKURA_MUTED_RGB;
 const HIDDEN_LABEL_PLAIN = "✦ Thought";
 const THINKING_TRAIL_COMPONENT = Symbol("pi-zentui.sakura-thinking-trail");
 
@@ -118,13 +118,35 @@ function themeItalic(theme: Theme, text: string): string {
 	}
 }
 
-/** Soft truecolor body — readable, macaron-adjacent, not full rainbow. */
-function softBody(theme: Theme, text: string): string {
-	return themeItalic(theme, rgbForeground(BODY_TINT, text));
+/** True when SGR params restore the default foreground (full reset or 39); skips extended color args. */
+function restoresForeground(params: string): boolean {
+	const parts = params.split(";");
+	for (let i = 0; i < parts.length; i++) {
+		const part = parts[i];
+		if (part === "" || part === "0" || part === "39") return true;
+		if (part === "38" || part === "48" || part === "58") {
+			i += parts[i + 1] === "5" ? 2 : parts[i + 1] === "2" ? 4 : 0;
+		}
+	}
+	return false;
 }
 
-function gradientBranch(text: string): string {
-	return renderSakuraGradient(text);
+/**
+ * Reapply the muted tint only where native Markdown drops back to the default foreground.
+ * Explicit colors (inline code, links, headings), emphasis, and OSC links stay intact.
+ */
+function softBody(theme: Theme, text: string): string {
+	const tint = fgAnsi(BODY_TINT);
+	const muted = tint
+		? text.replace(/\x1b\[([0-9;:]*)m/g, (sgr, params: string) =>
+				restoresForeground(params) ? `${sgr}${tint}` : sgr,
+			)
+		: text;
+	return themeItalic(theme, rgbForeground(BODY_TINT, muted));
+}
+
+function mutedBranch(text: string): string {
+	return rgbForeground(SAKURA_BORDER_RGB, text);
 }
 
 /**
@@ -168,40 +190,27 @@ class ThinkingTrailComponent implements Component {
 		if (rows.length === 0) return [];
 
 		const stepCount = rows.filter((row) => row.step).length;
-		const mark = renderSakuraGradient("✦");
+		const mark = renderSakuraSolid("✦");
 		// OpenCode/Claude-ish status chrome: Thought trail + step count
 		const labelCore = stepCount > 1 ? ` Thought trail · ${stepCount} steps` : " Thought trail";
-		const label = renderSakuraGradient(labelCore);
+		const label = renderSakuraSolid(labelCore);
 		const header = truncateToWidth(`  ${mark}${label}`, width, "");
 
 		const body: string[] = [];
 		let currentStep = 0;
-		let emitted = 0;
-		let truncated = false;
 
 		for (const { line, step } of rows) {
-			if (emitted >= MAX_PREVIEW_LINES) {
-				truncated = true;
-				break;
-			}
 			if (step) currentStep += 1;
 			const isLastStep = currentStep === stepCount;
 			const branchText = step ? (isLastStep ? "╰─ " : "├─ ") : isLastStep ? "   " : "│  ";
-			const branch = gradientBranch(branchText);
-			const marker = step ? `${renderSakuraGradient("◇")} ` : "  ";
-			const plain = stripAnsi(line);
-			// Already-styled (markdown etc.) keeps colors; plain → soft macaron body.
-			const bodyText = line.includes("\x1b[") ? line : softBody(theme, plain);
+			const branch = mutedBranch(branchText);
+			const marker = step ? `${renderSakuraSolid("◇")} ` : "  ";
+			const bodyText = softBody(theme, line);
 			body.push(truncateToWidth(`  ${branch}${marker}${bodyText}`, width, ""));
-			emitted += 1;
 		}
 
-		if (truncated) {
-			const more = Math.max(0, rows.length - MAX_PREVIEW_LINES);
-			const hint = softBody(theme, `… +${more} more · Ctrl+T collapses trail`);
-			const endBranch = gradientBranch("╰─ ");
-			body.push(truncateToWidth(`  ${endBranch}${hint}`, width, ""));
-		}
+		// Pi owns show/hide (including configured keys and MouseRegion clicks).
+		// Visible thinking must remain complete; never add a second preview cap.
 
 		// No leading blank — AssistantMessage already inserts Spacer(1) before content.
 		// Extra "" stacked with that Spacer and made the hole under user messages huge.
@@ -280,7 +289,7 @@ function recolorHiddenThinkingLines(lines: string[]): string[] {
 		}
 		if (!label) return line;
 		const pad = line.match(/^\s*/)?.[0] ?? "";
-		return `${pad}${renderSakuraGradient(label)}`;
+		return `${pad}${renderSakuraSolid(label)}`;
 	});
 }
 
