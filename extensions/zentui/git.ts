@@ -3,7 +3,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+const rawExecFileAsync = promisify(execFile);
+// Read-only UI probes must not refresh/lock the index or invoke a repository fsmonitor.
+function execFileAsync(command: string, args: string[], options: { cwd: string; timeout: number }) {
+	return rawExecFileAsync(command, ["-c", "core.fsmonitor=false", ...args], {
+		...options,
+		maxBuffer: 16 * 1024 * 1024,
+		env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+	});
+}
 const GIT_COMMAND_TIMEOUT_MS = 2_000;
 
 export type GitOperationState =

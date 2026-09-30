@@ -94,6 +94,7 @@ import {
 	startProjectRefreshInterval,
 } from "./project-refresh";
 import { applyProjectRefreshToState, projectStateSnapshot } from "./project-state";
+import { isProjectTrusted } from "./project-trust";
 import { RepositoryRootController, type RepositoryRootRequest } from "./repository-root";
 import { readRuntimeInfo } from "./runtime";
 import { installSelectorBorderStyle, removeSelectorBorderStyle } from "./selector-border";
@@ -481,18 +482,20 @@ export default function (pi: ExtensionAPI) {
 			: undefined;
 
 	type ProjectRefreshTarget = {
+		context: ExtensionContext;
 		repository: RepositoryRootRequest;
 		sessionGeneration: number;
 	};
 	const refreshProjectState = async (
-		{ repository, sessionGeneration }: ProjectRefreshTarget,
+		{ repository, sessionGeneration, context }: ProjectRefreshTarget,
 		run: ProjectRefreshRun,
 	) => {
 		const { cwd } = repository;
 		if (
 			!run.isCurrent() ||
 			!sessionLifecycle.isCurrent(sessionGeneration) ||
-			!repositoryRoots.isCurrent(repository)
+			!repositoryRoots.isCurrent(repository) ||
+			!isProjectTrusted(context)
 		) {
 			return false;
 		}
@@ -514,7 +517,8 @@ export default function (pi: ExtensionAPI) {
 		if (
 			!run.isCurrent() ||
 			!sessionLifecycle.isCurrent(sessionGeneration) ||
-			!repositoryRoots.isCurrent(repository)
+			!repositoryRoots.isCurrent(repository) ||
+			!isProjectTrusted(context)
 		) {
 			return false;
 		}
@@ -539,13 +543,13 @@ export default function (pi: ExtensionAPI) {
 	) => {
 		const sessionGeneration = sessionLifecycle.currentGeneration();
 		if (!sessionLifecycle.isCurrent(sessionGeneration)) return;
-		if (!needsProjectRefresh()) {
+		if (!needsProjectRefresh() || !isProjectTrusted(ctx)) {
 			stopProjectRefresh();
 			return;
 		}
 		const repository = repositoryRoots.request(ctx.cwd);
 		minimalistProjectRoot = repositoryRoots.cachedRootForCwd(ctx.cwd);
-		projectRefreshScheduler.schedule({ repository, sessionGeneration }, options);
+		projectRefreshScheduler.schedule({ repository, sessionGeneration, context: ctx }, options);
 	};
 
 	const getProjectDemand = () =>
@@ -565,6 +569,7 @@ export default function (pi: ExtensionAPI) {
 		projectRefreshScheduler.stop();
 		projectRefreshActive = false;
 		Object.assign(state, emptyGitStatus());
+		state.gitUnavailable = false;
 		state.runtime = undefined;
 		state.packageVersion = undefined;
 		lastProjectCwd = undefined;

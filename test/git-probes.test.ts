@@ -33,6 +33,7 @@ beforeEach(() => {
 	failed = [];
 	failure = new Error("transient");
 	probe.exec.mockReset().mockImplementation(async (_command, args: string[]) => {
+		args = args.slice(2);
 		if (failed.includes(args[0])) throw failure;
 		if (args[0] === "status") return { stdout: status };
 		if (args[0] === "stash") return { stdout: "stash@{0}: WIP\nstash@{1}: WIP\n" };
@@ -60,15 +61,30 @@ describe("readGitStatus subprocess demand", () => {
 			status: { branch: "main", stashed: 2, dirty: true, ahead: 2, behind: 1 },
 		});
 		expect(probe.exec).toHaveBeenCalledTimes(3);
-		expect(probe.exec.mock.calls.map((call) => call[1][0])).toEqual([
+		expect(probe.exec.mock.calls.map((call) => call[1][2])).toEqual([
 			"status",
 			"stash",
 			"rev-parse",
 		]);
 		expect(probe.exec).toHaveBeenLastCalledWith(
 			"git",
-			["rev-parse", "--path-format=absolute", ...specs.flatMap((spec) => ["--git-path", spec])],
-			{ cwd: root, timeout: 2000 },
+			[
+				"-c",
+				"core.fsmonitor=false",
+				"rev-parse",
+				"--path-format=absolute",
+				...specs.flatMap((spec) => ["--git-path", spec]),
+			],
+			expect.objectContaining({
+				cwd: root,
+				timeout: 2000,
+				maxBuffer: 16 * 1024 * 1024,
+				env: expect.objectContaining({
+					GIT_OPTIONAL_LOCKS: "0",
+					GIT_TERMINAL_PROMPT: "0",
+					LC_ALL: "C",
+				}),
+			}),
 		);
 	});
 
@@ -97,7 +113,7 @@ describe("readGitStatus subprocess demand", () => {
 		expect(probe.exec).toHaveBeenCalledTimes(5);
 		expect(probe.exec).toHaveBeenCalledWith(
 			"git",
-			["diff", "HEAD", "--numstat", "--ignore-submodules=all"],
+			["-c", "core.fsmonitor=false", "diff", "HEAD", "--numstat", "--ignore-submodules=all"],
 			expect.anything(),
 		);
 	});

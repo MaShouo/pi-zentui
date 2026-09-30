@@ -1,10 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getColorMode, paintFg, type RGB, syncColorMode } from "../shared/color";
 
 export const MATRIX_WIDGET_KEY = "sakura-matrix";
-const CONFIG_PATH = join(homedir(), ".pi", "agent", "sakura-cyberdeck-matrix.json");
+export const CONFIG_PATH = join(homedir(), ".pi", "agent", "sakura-cyberdeck-matrix.json");
+const PREVIEW_MS = 5_000;
 const RESET = "\x1b[0m";
 const GLYPHS = [..."01ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾗﾘﾙﾚﾛﾜﾝ"];
 const BG: RGB = [20, 17, 26];
@@ -18,9 +20,8 @@ const CANDY: readonly RGB[] = [
 	[174, 229, 197],
 ];
 
-type RGB = readonly [number, number, number];
-export type MatrixPhase = "thinking" | "working" | "tool";
 type Timer = ReturnType<typeof setTimeout>;
+export type MatrixPhase = "thinking" | "working" | "tool";
 
 export interface MatrixConfig {
 	enabled: boolean;
@@ -39,6 +40,12 @@ export interface MatrixDrop {
 	color: RGB;
 }
 
+export const LIMITS = {
+	fps: { min: 8, max: 18 },
+	density: { min: 0.45, max: 0.95 },
+	height: { min: 3, max: 6 },
+} as const;
+
 export const DEFAULT_MATRIX_CONFIG: MatrixConfig = {
 	enabled: true,
 	fps: 10,
@@ -50,23 +57,113 @@ function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
 
-function loadConfig(): MatrixConfig {
+function numberOr(value: unknown, fallback: number): number {
+	const parsed = typeof value === "number" ? value : Number(value);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Normalize any parsed JSON into a valid config; unknown/invalid fields fall back to defaults. */
+export function normalizeConfig(parsed: unknown): MatrixConfig {
+	const raw = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+	return {
+		enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_MATRIX_CONFIG.enabled,
+		fps: Math.round(
+			clamp(numberOr(raw.fps, DEFAULT_MATRIX_CONFIG.fps), LIMITS.fps.min, LIMITS.fps.max),
+		),
+		density:
+			Math.round(
+				clamp(
+					numberOr(raw.density, DEFAULT_MATRIX_CONFIG.density),
+					LIMITS.density.min,
+					LIMITS.density.max,
+				) * 100,
+			) / 100,
+		height: Math.round(
+			clamp(
+				numberOr(raw.height, DEFAULT_MATRIX_CONFIG.height),
+				LIMITS.height.min,
+				LIMITS.height.max,
+			),
+		),
+	};
+}
+
+/** Reads config without ever rewriting the file; a corrupt file returns defaults plus an error. */
+export function loadConfig(path: string = CONFIG_PATH): { config: MatrixConfig; error?: string } {
 	try {
-		if (!existsSync(CONFIG_PATH)) return { ...DEFAULT_MATRIX_CONFIG };
-		const parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as Partial<MatrixConfig>;
+		if (!existsSync(path)) return { config: { ...DEFAULT_MATRIX_CONFIG } };
+		return { config: normalizeConfig(JSON.parse(readFileSync(path, "utf8"))) };
+	} catch (error) {
 		return {
-			enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : DEFAULT_MATRIX_CONFIG.enabled,
-			fps: clamp(Number(parsed.fps) || DEFAULT_MATRIX_CONFIG.fps, 8, 18),
-			density: clamp(Number(parsed.density) || DEFAULT_MATRIX_CONFIG.density, 0.45, 0.95),
-			height: clamp(Math.round(Number(parsed.height) || DEFAULT_MATRIX_CONFIG.height), 3, 6),
+			config: { ...DEFAULT_MATRIX_CONFIG },
+			error: error instanceof Error ? error.message : String(error),
 		};
-	} catch {
-		return { ...DEFAULT_MATRIX_CONFIG };
 	}
 }
 
-function saveConfig(config: MatrixConfig): void {
-	writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+/** Atomic write: temp file + rename, parent directory created on demand. Returns an error message. */
+export function saveConfig(config: MatrixConfig, path: string = CONFIG_PATH): string | undefined {
+	try {
+		mkdirSync(dirname(path), { recursive: true });
+		const tmp = `${path}.${process.pid}.tmp`;
+		writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+		renameSync(tmp, path);
+		return undefined;
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
+}
+
+export type MatrixCommand =
+	| { type: "status" }
+	| { type: "help" }
+	| { type: "on" }
+	| { type: "off" }
+	| { type: "preview" }
+	| { type: "set"; key: "fps" | "density" | "height"; value: number }
+	| { type: "invalid"; message: string };
+
+export const HELP_TEXT = [
+	"/sakura-matrix status        show current settings",
+	"/sakura-matrix on | off      enable or disable the rain while the agent works",
+	"/sakura-matrix preview       show the rain for 5 seconds",
+	`/sakura-matrix fps N         frame rate (${LIMITS.fps.min}-${LIMITS.fps.max})`,
+	`/sakura-matrix density N     column density (${LIMITS.density.min}-${LIMITS.density.max})`,
+	`/sakura-matrix height N      rows (${LIMITS.height.min}-${LIMITS.height.max})`,
+	"/sakura-matrix help          show this help",
+].join("\n");
+
+export function parseMatrixCommand(args: string): MatrixCommand {
+	const [command = "", value] = args.trim().toLowerCase().split(/\s+/);
+	switch (command) {
+		case "":
+		case "status":
+			return { type: "status" };
+		case "help":
+		case "?":
+			return { type: "help" };
+		case "on":
+		case "off":
+		case "preview":
+			return { type: command };
+		case "fps":
+		case "density":
+		case "height": {
+			const { min, max } = LIMITS[command];
+			const parsed = Number(value);
+			if (value === undefined || !Number.isFinite(parsed) || parsed < min || parsed > max) {
+				return { type: "invalid", message: `Usage: /sakura-matrix ${command} <${min}-${max}>` };
+			}
+			const rounded = command === "density" ? Math.round(parsed * 100) / 100 : Math.round(parsed);
+			return { type: "set", key: command, value: rounded };
+		}
+		default:
+			return { type: "invalid", message: `Unknown subcommand "${command}".\n${HELP_TEXT}` };
+	}
+}
+
+export function describeConfig(config: MatrixConfig): string {
+	return `Sakura Matrix: ${config.enabled ? "on" : "off"} · ${config.fps} FPS · ${config.height} lines · density ${config.density}`;
 }
 
 function mulberry32(seed: number): () => number {
@@ -89,7 +186,9 @@ function mix(from: RGB, to: RGB, amount: number): RGB {
 }
 
 function colorize(char: string, color: RGB, bold = false): string {
-	return `\x1b[${bold ? "1;" : ""}38;2;${color[0]};${color[1]};${color[2]}m${char}${RESET}`;
+	if (getColorMode() === "none") return char;
+	const painted = paintFg(color, char);
+	return bold ? `\x1b[1m${painted}\x1b[22m` : painted;
 }
 
 function stableGlyph(seed: number, row: number, timeSlice: number): string {
@@ -128,7 +227,7 @@ export function renderSakuraMatrix(
 	drops: readonly MatrixDrop[],
 ): string[] {
 	const safeWidth = Math.max(1, width);
-	const safeHeight = clamp(height, 3, 6);
+	const safeHeight = clamp(Math.round(height), LIMITS.height.min, LIMITS.height.max);
 	const grid: string[][] = Array.from({ length: safeHeight }, () => Array(safeWidth).fill(" "));
 	const timeSlice = Math.floor(elapsedSeconds * 8);
 	const phaseSpeed = phase === "tool" ? 1.12 : phase === "thinking" ? 1.06 : 1;
@@ -151,15 +250,32 @@ export function renderSakuraMatrix(
 		}
 	}
 
-	return grid.map((row) => `${row.join("")}${RESET}`);
+	const reset = getColorMode() === "none" ? "" : RESET;
+	return grid.map((row) => `${row.join("")}${reset}`);
+}
+
+/** Animations and notices only belong in the interactive terminal UI; legacy hosts expose hasUI. */
+export function isInteractiveTui(
+	ctx: Pick<ExtensionContext, "mode" | "hasUI"> | undefined,
+): boolean {
+	if (!ctx) return false;
+	return typeof ctx.mode === "string" ? ctx.mode === "tui" : ctx.hasUI === true;
 }
 
 export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
-	const config = loadConfig();
+	const loaded = loadConfig();
+	const config = loaded.config;
+	// A corrupt file keeps failing loudly and is never overwritten by a save.
+	const configError = loaded.error;
+	let configWarning = configError
+		? `Sakura Matrix: could not read ${CONFIG_PATH} (${configError}); using defaults and refusing to overwrite it.`
+		: undefined;
 	let activeContext: ExtensionContext | undefined;
 	let phase: MatrixPhase = "working";
 	let active = false;
+	let previewing = false;
 	let timer: Timer | undefined;
+	let previewTimer: Timer | undefined;
 	let startedAt = 0;
 	let nextDeadline = 0;
 	let lastHostUpdateAt = 0;
@@ -178,7 +294,7 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 	const component = {
 		render(width: number): string[] {
 			const safeWidth = Math.max(1, width);
-			const key = `${safeWidth}:${config.height}:${frame}:${phase}`;
+			const key = `${safeWidth}:${config.height}:${frame}:${phase}:${getColorMode()}`;
 			if (key === cachedKey) return cachedLines;
 			let drops = dropsByWidth.get(safeWidth);
 			if (!drops) {
@@ -199,14 +315,21 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 			return cachedLines;
 		},
 		invalidate(): void {
+			try {
+				if (activeContext) syncColorMode(activeContext.ui.theme);
+			} catch {
+				/* Disposed UI. */
+			}
 			dropsByWidth.clear();
 			invalidate();
 		},
 	};
 
-	const clearTimer = () => {
+	const clearTimers = () => {
 		if (timer) clearTimeout(timer);
+		if (previewTimer) clearTimeout(previewTimer);
 		timer = undefined;
+		previewTimer = undefined;
 	};
 
 	const schedule = (token: number) => {
@@ -220,7 +343,13 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 				if (!active || token !== generation) return;
 				frame += 1;
 				invalidate();
-				if (performance.now() - lastHostUpdateAt >= frameMs) requestRender?.();
+				// Streaming/tool updates already trigger a host render; skip a redundant one.
+				try {
+					if (performance.now() - lastHostUpdateAt >= frameMs) requestRender?.();
+				} catch {
+					stop();
+					return;
+				}
 				schedule(token);
 			},
 			Math.max(16, nextDeadline - performance.now()),
@@ -231,7 +360,8 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 	const stop = () => {
 		generation += 1;
 		active = false;
-		clearTimer();
+		previewing = false;
+		clearTimers();
 		const ctx = activeContext;
 		activeContext = undefined;
 		requestRender = undefined;
@@ -241,13 +371,15 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 		try {
 			ctx.ui.setWidget(MATRIX_WIDGET_KEY, undefined, { placement: "aboveEditor" });
 		} catch {
-			// The UI may already be disposed during shutdown; cleanup is idempotent.
+			// The UI may already be disposed during shutdown; cleanup stays idempotent.
 		}
 	};
 
-	const start = (ctx: ExtensionContext, initialPhase: MatrixPhase = "working") => {
+	/** Starts the rain; returns false when it cannot run (non-TUI or disposed UI). */
+	const start = (ctx: ExtensionContext, initialPhase: MatrixPhase = "working"): boolean => {
 		stop();
-		if (!config.enabled || ctx.mode !== "tui") return;
+		if (!isInteractiveTui(ctx)) return false;
+		syncColorMode(ctx.ui.theme);
 		activeContext = ctx;
 		active = true;
 		phase = initialPhase;
@@ -258,15 +390,21 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 		dropsByWidth.clear();
 		invalidate();
 		const token = generation;
-		ctx.ui.setWidget(
-			MATRIX_WIDGET_KEY,
-			(tui) => {
-				requestRender = () => tui.requestRender();
-				return component;
-			},
-			{ placement: "aboveEditor" },
-		);
+		try {
+			ctx.ui.setWidget(
+				MATRIX_WIDGET_KEY,
+				(tui) => {
+					requestRender = () => tui.requestRender();
+					return component;
+				},
+				{ placement: "aboveEditor" },
+			);
+		} catch {
+			stop();
+			return false;
+		}
 		schedule(token);
+		return true;
 	};
 
 	const noteHostUpdate = () => {
@@ -281,7 +419,53 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 		invalidate();
 	};
 
-	pi.on("agent_start", (_event, ctx) => start(ctx));
+	const notify = (
+		ctx: ExtensionContext,
+		message: string,
+		type: "info" | "warning" | "error" = "info",
+	) => {
+		try {
+			ctx.ui.notify(message, type);
+		} catch {
+			// A disposed UI must not take down the command path.
+		}
+	};
+
+	/**
+	 * Persists `candidate` before any in-memory change is applied. On failure nothing changes,
+	 * so the in-memory enabled flag can never disagree with the running rain.
+	 */
+	const writeConfig = (ctx: ExtensionContext, candidate: MatrixConfig, done: string): boolean => {
+		const currentError = loadConfig().error;
+		if (currentError) {
+			notify(
+				ctx,
+				`Sakura Matrix: ${CONFIG_PATH} is not usable (${currentError}); refusing to overwrite it. Fix or remove the file first.`,
+				"error",
+			);
+			return false;
+		}
+		const error = saveConfig(candidate);
+		if (error) {
+			notify(ctx, `Sakura Matrix: could not save settings (${error})`, "error");
+			return false;
+		}
+		notify(ctx, done);
+		return true;
+	};
+
+	pi.on("session_start", (_event, ctx) => {
+		if (!isInteractiveTui(ctx)) return;
+		syncColorMode(ctx.ui.theme);
+		if (configWarning) {
+			notify(ctx, configWarning, "warning");
+			configWarning = undefined;
+		}
+	});
+
+	pi.on("agent_start", (_event, ctx) => {
+		if (config.enabled) start(ctx);
+	});
 	pi.on("agent_end", () => stop());
 	pi.on("session_before_switch", () => stop());
 	pi.on("session_shutdown", () => stop());
@@ -303,60 +487,66 @@ export default function sakuraMatrixExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand("sakura-matrix", {
 		description:
-			"Sakura Matrix animation: status, on, off, preview, fps <8-18>, density <0.45-0.95>",
+			"Sakura Matrix rain: status | help | on | off | preview | fps N | density N | height N",
 		handler: async (args, ctx) => {
-			const [command = "status", value] = args.trim().toLowerCase().split(/\s+/);
-			if (command === "on") {
-				config.enabled = true;
-				saveConfig(config);
-				start(ctx);
-				ctx.ui.notify("Sakura Matrix enabled", "info");
-				return;
-			}
-			if (command === "off") {
-				config.enabled = false;
-				saveConfig(config);
-				stop();
-				ctx.ui.notify("Sakura Matrix disabled", "info");
-				return;
-			}
-			if (command === "preview") {
-				start(ctx, "thinking");
-				const previewToken = generation;
-				const previewTimer = setTimeout(() => {
-					if (generation === previewToken) stop();
-				}, 5000);
-				previewTimer.unref?.();
-				ctx.ui.notify("Sakura Matrix preview: 5 seconds", "info");
-				return;
-			}
-			if (command === "fps") {
-				const fps = Number(value);
-				if (!Number.isFinite(fps) || fps < 8 || fps > 18) {
-					ctx.ui.notify("Usage: /sakura-matrix fps <8-18>", "error");
+			const command = parseMatrixCommand(args ?? "");
+			switch (command.type) {
+				case "status":
+					notify(ctx, describeConfig(config));
+					return;
+				case "help":
+					notify(ctx, HELP_TEXT);
+					return;
+				case "invalid":
+					notify(ctx, command.message, "error");
+					return;
+				case "on":
+					// Persist first: a failed save must not leave enabled=true in memory.
+					if (writeConfig(ctx, { ...config, enabled: true }, "Sakura Matrix enabled")) {
+						config.enabled = true;
+						if ((!active || previewing) && !ctx.isIdle()) start(ctx);
+					}
+					return;
+				case "off":
+					if (writeConfig(ctx, { ...config, enabled: false }, "Sakura Matrix disabled")) {
+						config.enabled = false;
+						stop();
+					}
+					return;
+				case "set": {
+					const candidate = { ...config, [command.key]: command.value };
+					if (writeConfig(ctx, candidate, describeConfig(candidate))) {
+						config[command.key] = command.value;
+						dropsByWidth.clear();
+						invalidate();
+					}
 					return;
 				}
-				config.fps = Math.round(fps);
-				saveConfig(config);
-				ctx.ui.notify(`Sakura Matrix FPS: ${config.fps}`, "info");
-				return;
-			}
-			if (command === "density") {
-				const density = Number(value);
-				if (!Number.isFinite(density) || density < 0.45 || density > 0.95) {
-					ctx.ui.notify("Usage: /sakura-matrix density <0.45-0.95>", "error");
+				case "preview": {
+					if (!isInteractiveTui(ctx)) {
+						notify(ctx, "Sakura Matrix preview needs the interactive terminal UI", "warning");
+						return;
+					}
+					// Already raining (normal run or an earlier preview): just say so instead of
+					// starting a 5s timer that would cut a real run short.
+					if (active) {
+						notify(ctx, "Sakura Matrix is already running");
+						return;
+					}
+					if (!start(ctx, "thinking")) {
+						notify(ctx, "Sakura Matrix preview could not start", "warning");
+						return;
+					}
+					previewing = true;
+					const token = generation;
+					previewTimer = setTimeout(() => {
+						if (generation === token && previewing) stop();
+					}, PREVIEW_MS);
+					previewTimer.unref?.();
+					notify(ctx, "Sakura Matrix preview: 5 seconds");
 					return;
 				}
-				config.density = Math.round(density * 100) / 100;
-				dropsByWidth.clear();
-				saveConfig(config);
-				ctx.ui.notify(`Sakura Matrix density: ${config.density}`, "info");
-				return;
 			}
-			ctx.ui.notify(
-				`Sakura Matrix: ${config.enabled ? "on" : "off"} · ${config.fps} FPS · ${config.height} lines · density ${config.density}`,
-				"info",
-			);
 		},
 	});
 }

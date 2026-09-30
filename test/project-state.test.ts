@@ -7,7 +7,7 @@ import {
 import { createInitialState } from "../extensions/zentui/state";
 
 describe("applyProjectRefreshToState", () => {
-	it("keeps last-good git and runtime on transient errors", () => {
+	it("clears stale git, marks it unavailable, and keeps last-good runtime", () => {
 		const state = createInitialState({
 			...emptyGitStatus(),
 			branch: "main",
@@ -22,8 +22,9 @@ describe("applyProjectRefreshToState", () => {
 			runtime: { kind: "error" },
 		});
 
-		expect(state.branch).toBe("main");
-		expect(state.modified).toBe(2);
+		expect(state.branch).toBeUndefined();
+		expect(state.modified).toBe(0);
+		expect(state.gitUnavailable).toBe(true);
 		expect(state.runtime?.name).toBe("nodejs");
 	});
 

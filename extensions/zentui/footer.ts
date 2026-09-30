@@ -345,12 +345,14 @@ export function installFooter(
 						)
 					: "";
 				const builtInSessionNameLabel = sessionNameLabel ? `in ${sessionNameLabel}` : "";
-				const branchText = branch
-					? formatGitBranchText(
-							branch,
-							config.components.footer.styles.starship.gitBranch.maxLength,
-						)
-					: undefined;
+				const branchText = state.gitUnavailable
+					? "[git n/a]"
+					: branch
+						? formatGitBranchText(
+								branch,
+								config.components.footer.styles.starship.gitBranch.maxLength,
+							)
+						: undefined;
 				const needsContext =
 					(config.components.footer.styles.starship.format
 						? wideReferences.includes("context")
@@ -472,9 +474,13 @@ export function installFooter(
 					return "";
 				})();
 				const statusBlock =
-					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
+					state.gitUnavailable && !branch
+						? gitStatusColor("[git n/a]")
+						: allStatus || aheadBehind
+							? gitStatusColor(`[${allStatus}${aheadBehind}]`)
+							: "";
 				const gitStateBlock = gitStateLabel ? gitStatusColor(gitStateLabel) : "";
-				const renderVariable = (name: string): string => {
+				const renderVariable = (name: string, references = wideReferences): string => {
 					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
 					switch (canonical) {
 						case "cwd":
@@ -488,7 +494,7 @@ export function installFooter(
 									: gitColor(branchText)
 								: "";
 						case "git_status":
-							return statusBlock;
+							return state.gitUnavailable && references.includes("git_branch") ? "" : statusBlock;
 						case "git_state":
 							return gitStateBlock;
 						case "runtime": {
@@ -673,7 +679,9 @@ export function installFooter(
 					}
 				}
 				const gitStatusParts =
-					config.components.footer.styles.starship.segments.gitStatus && statusBlock
+					config.components.footer.styles.starship.segments.gitStatus &&
+					statusBlock &&
+					!(state.gitUnavailable && config.components.footer.styles.starship.segments.gitBranch)
 						? [statusBlock]
 						: [];
 				const showGitState =
@@ -960,9 +968,12 @@ export function installFooter(
 					Math.max(1, chunkBudget - visibleWidth("in ")),
 					"…",
 				);
+				const compactStatusBlock = renderVariable("git_status", compactReferences);
 				const compactBranchBudget = Math.max(
 					1,
-					chunkBudget - visibleWidth("on ") - (statusBlock ? visibleWidth(statusBlock) + 1 : 0),
+					chunkBudget -
+						visibleWidth("on ") -
+						(compactStatusBlock ? visibleWidth(compactStatusBlock) + 1 : 0),
 				);
 				const compactBranchLabel = truncateFooterText(
 					renderVariable("git_branch"),
@@ -979,7 +990,7 @@ export function installFooter(
 						case "git_branch":
 							return compactBranchLabel;
 						default:
-							return renderVariable(name);
+							return renderVariable(name, compactReferences);
 					}
 				};
 				const renderCompactChunks = (

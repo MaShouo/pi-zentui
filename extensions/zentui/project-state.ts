@@ -14,6 +14,7 @@ export function projectStateSnapshot(
 		cwd,
 		root,
 		state.branch,
+		state.gitUnavailable,
 		state.dirty,
 		state.ahead,
 		state.behind,
@@ -43,7 +44,7 @@ export function projectStateSnapshot(
 
 /**
  * Apply a project refresh (git + runtime) onto footer state, preserving
- * last-good values on transient errors and clearing on cwd change / not-a-repo.
+ * last-good runtime values on transient errors and clearing stale Git on failure.
  *
  * Returns the cwd to store as `previousCwd` for the next refresh.
  */
@@ -65,12 +66,13 @@ export function applyProjectRefreshToState(
 		state.packageVersion = undefined;
 	}
 
+	state.gitUnavailable = args.git.kind === "error";
 	if (args.git.kind === "ok") {
 		Object.assign(state, args.git.status);
-	} else if (args.git.kind === "not_a_repo") {
+	} else {
 		Object.assign(state, emptyGitStatus());
 	}
-	// kind === "error": keep previous git fields (unless cwdChanged already cleared)
+	// Failed Git probes must never display stale counts as current status.
 
 	if (args.runtime.kind === "ok") {
 		state.runtime = args.runtime.runtime;

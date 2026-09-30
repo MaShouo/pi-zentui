@@ -9,7 +9,7 @@
 		"text": "#F7EEF8",
 		"textSoft": "#D8CADC",
 		"muted": "#A99BAE",
-		"dim": "#716879",
+		"dim": "#877C8F",
 		"sakura": "#F2A7C6",
 		"sakuraIro": "#FCC9B9",
 		"petal": "#EFC3E6",
@@ -20,7 +20,8 @@
 		"butter": "#F3D98B",
 		"coral": "#FF8FA3",
 		"border": "#6E5878",
-		"borderMuted": "#493C53"
+		"borderMuted": "#54465F",
+		"plum": "#4A2E40"
 	},
 	"colors": {
 		"accent": "sakura",
@@ -74,7 +75,11 @@
 		"thinkingHigh": "sakura",
 		"thinkingXhigh": "lavender",
 		"thinkingMax": "coral",
-		"bashMode": "mint"
+		"bashMode": "mint",
+		"scrollbarTrack": "borderMuted",
+		"scrollbarThumb": "muted",
+		"searchMatchBg": "plum",
+		"searchMatchText": "butter"
 	},
 	"export": {
 		"pageBg": "#14111A",

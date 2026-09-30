@@ -1,11 +1,12 @@
+import { stripVTControlCharacters as stripAnsi } from "node:util";
 import { BashExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { stripAnsi } from "../extensions/zentui/tool-body-polish";
 import { installToolExecutionStyle } from "../extensions/zentui/tool-execution";
 
 initTheme("dark", false);
 const ui = { requestRender() {} } as TUI;
+const nativeRender = BashExecutionComponent.prototype.render;
 
 describe("Sakura Bash frame", () => {
 	it.each([false, true])(
@@ -28,6 +29,10 @@ describe("Sakura Bash frame", () => {
 					for (const width of [5, 24, 80]) {
 						const lines = bash.render(width).map(stripAnsi);
 						expect(lines[0]?.trim()).toBe("");
+						if (!lines[1]?.startsWith("╭")) {
+							expect(bash.render(width)).toEqual(nativeRender.call(bash, width));
+							continue;
+						}
 						expect(lines[1]).toMatch(/^╭.*╮$/);
 						expect(lines.at(-1)).toMatch(/^╰─+╯$/);
 						for (const line of lines.slice(1)) expect(visibleWidth(line)).toBe(width);

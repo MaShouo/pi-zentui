@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setColorMode } from "../extensions/shared/color";
 
 const isolatedHome = vi.hoisted(() => {
 	const fs = process.getBuiltinModule("node:fs");
@@ -16,6 +18,10 @@ import sakuraMatrix, {
 
 type Handler = (event: unknown, context: unknown) => void | Promise<void>;
 
+// The shared color mode is process-global: pin it so ANSI assertions stay stable.
+beforeEach(() => setColorMode("truecolor"));
+afterEach(() => setColorMode("truecolor"));
+
 describe("Sakura Matrix renderer", () => {
 	it("creates deterministic bounded drops and fixed-height ANSI frames", () => {
 		const first = createDrops(72, 0.65, 4);
@@ -30,6 +36,29 @@ describe("Sakura Matrix renderer", () => {
 		expect(frame).toHaveLength(4);
 		expect(frame.every((line) => line.endsWith("\x1b[0m"))).toBe(true);
 		expect(frame.join("")).toContain("\x1b[38;2;");
+	});
+
+	it("keeps every row inside the requested width and height", () => {
+		for (const width of [1, 7, 40, 213]) {
+			const drops = createDrops(width, 0.65, 4);
+			const lines = renderSakuraMatrix(width, 4, 1.3, "working", drops);
+			expect(lines).toHaveLength(4);
+			for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+	});
+
+	it("renders indexed colors in 256-color mode and no escapes under NO_COLOR", () => {
+		const drops = createDrops(40, 0.65, 4);
+
+		setColorMode("256color");
+		const indexed = renderSakuraMatrix(40, 4, 1.3, "working", drops).join("");
+		expect(indexed).toMatch(/\x1b\[38;5;\d+m/);
+		expect(indexed).not.toContain("38;2;");
+
+		setColorMode("none");
+		const plain = renderSakuraMatrix(40, 4, 1.3, "working", drops).join("");
+		expect(plain).not.toContain("\x1b[");
+		expect(plain.length).toBeGreaterThan(0);
 	});
 });
 

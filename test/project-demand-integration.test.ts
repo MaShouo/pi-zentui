@@ -112,6 +112,7 @@ function harness() {
 	} as unknown as Theme;
 	const ctx = {
 		hasUI: true,
+		isProjectTrusted: () => true,
 		mode: "tui",
 		cwd,
 		model: { id: "test", provider: "test", contextWindow: 10000 },
@@ -170,6 +171,7 @@ beforeEach(() => {
 	fixture.runtime.mockReset().mockResolvedValue({ kind: "ok", runtime: undefined });
 	fixture.packageVersion.mockReset().mockResolvedValue({ kind: "ok", result: null });
 	fixture.exec.mockReset().mockImplementation(async (_command, args: string[], options) => {
+		args = args.slice(2);
 		if (args[0] === "status") {
 			if (failStatus) throw new Error(failStatus);
 			return deferred ? deferred() : { stdout: status };
@@ -363,7 +365,7 @@ describe("owned project demand through real index and git reader", () => {
 		});
 		const h = harness();
 		await h.emit("session_start");
-		expect(fixture.exec.mock.calls.map((call) => call[1][0])).toEqual([
+		expect(fixture.exec.mock.calls.map((call) => call[1][2])).toEqual([
 			"status",
 			"stash",
 			"rev-parse",
@@ -398,7 +400,7 @@ describe("owned project demand through real index and git reader", () => {
 		});
 		const h = harness();
 		await h.emit("session_start");
-		expect(fixture.exec.mock.calls.map((call) => call[1][0])).toEqual(commands);
+		expect(fixture.exec.mock.calls.map((call) => call[1][2])).toEqual(commands);
 	});
 
 	it("clears demand on footer disposal without changing the other surface", async () => {
@@ -461,7 +463,7 @@ describe("owned project demand through real index and git reader", () => {
 		expect(fixture.exec).toHaveBeenCalledTimes(1);
 	});
 
-	it("suppresses unchanged snapshots but polls external changes and keeps last-good errors", async () => {
+	it("suppresses unchanged snapshots but polls external changes and marks errors unavailable", async () => {
 		const h = harness();
 		await h.emit("session_start");
 		const footer = h.footer();
@@ -475,11 +477,12 @@ describe("owned project demand through real index and git reader", () => {
 		expect(footer.render(200).join("\n")).toContain("external-change");
 		failStatus = "temporary failure";
 		await vi.advanceTimersByTimeAsync(5000);
-		expect.soft(h.requestRender).toHaveBeenCalledTimes(1);
-		expect(footer.render(200).join("\n")).toContain("external-change");
+		expect.soft(h.requestRender).toHaveBeenCalledTimes(2);
+		expect(footer.render(200).join("\n")).toContain("[git n/a]");
+		expect(footer.render(200).join("\n")).not.toContain("external-change");
 		failStatus = "not a git repository";
 		await vi.advanceTimersByTimeAsync(5000);
-		expect.soft(h.requestRender).toHaveBeenCalledTimes(2);
+		expect.soft(h.requestRender).toHaveBeenCalledTimes(3);
 		expect(footer.render(200).join("\n")).not.toContain("external-change");
 		footer.dispose?.();
 	});
@@ -562,4 +565,37 @@ describe("owned project demand through real index and git reader", () => {
 		expect(h.requestRender).toHaveBeenCalledTimes(0);
 		footer.dispose?.();
 	});
+});
+
+it.each([false, "throws"])("skips all project probes when trust is %s", async (trust) => {
+	configure((c) => {
+		c.components.footer.styles.starship.format = "$git_branch $runtime $package";
+	});
+	const h = harness();
+	h.ctx.isProjectTrusted = () => {
+		if (trust === "throws") throw new Error("unavailable");
+		return false;
+	};
+	await h.emit("session_start");
+	await vi.advanceTimersByTimeAsync(10_000);
+	expect(fixture.exec).not.toHaveBeenCalled();
+	expect(fixture.runtime).not.toHaveBeenCalled();
+	expect(fixture.packageVersion).not.toHaveBeenCalled();
+});
+
+it("marks Git failure, clears it on recovery, and suppresses repeat error renders", async () => {
+	const h = harness();
+	await h.emit("session_start");
+	const footer = h.footer();
+	failStatus = "maxBuffer length exceeded";
+	await vi.advanceTimersByTimeAsync(5000);
+	expect(footer.render(200).join("")).toContain("[git n/a]");
+	h.requestRender.mockClear();
+	await vi.advanceTimersByTimeAsync(5000);
+	expect(h.requestRender).not.toHaveBeenCalled();
+	failStatus = undefined;
+	await vi.advanceTimersByTimeAsync(5000);
+	expect(footer.render(200).join("")).toContain("main");
+	expect(footer.render(200).join("")).not.toContain("[git n/a]");
+	footer.dispose?.();
 });

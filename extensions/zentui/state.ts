@@ -16,6 +16,7 @@ import type { RuntimeInfo } from "./runtime";
 import type { FooterTelemetry } from "./telemetry";
 
 export type FooterState = GitStatusSummary & {
+	gitUnavailable?: boolean;
 	modelLabel: string;
 	modelId: string;
 	modelName: string;

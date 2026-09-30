@@ -18,3 +18,8 @@ thinkingVisibilityOverrides clear, and shared left-click/Ctrl+T expand behavior
 from 0.1.10 at df27a7b. Original project: https://github.com/99percentpeople/pi-extensions
 License: MIT. The full license text is included in
 extensions/zentui/thinking-experimental.ts.
+
+Selected rendering and robustness fixes are adapted from pi-sakura-cyberdeck
+v1.2.0 (3919fac) by pi-sakura-cyberdeck contributors.
+Original project: https://github.com/beautifulrem/pi-sakura-cyberdeck
+License: MIT. Full license text: licenses/pi-sakura-cyberdeck-MIT.txt

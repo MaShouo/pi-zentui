@@ -7,6 +7,7 @@ type PrototypePatchAdapter =
 	| "thinking-experimental-update-content"
 	| "tool-execution-render"
 	| "tool-execution-invalidate"
+	| "tool-execution-mouse"
 	| "bash-execution-render"
 	| "assistant-thinking-content"
 	| "assistant-thinking-hidden-render";
@@ -27,7 +28,7 @@ type Registration = {
 	onDisplaced?: () => void;
 };
 
-type PatchMethod = "render" | "invalidate" | "updateContent";
+type PatchMethod = "render" | "invalidate" | "updateContent" | "handleMouse";
 
 type PatchRecord = {
 	method: PatchMethod;

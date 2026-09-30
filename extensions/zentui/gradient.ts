@@ -1,4 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { fgAnsi, getColorMode, paintFg } from "../shared/color";
 
 export type RGB = readonly [number, number, number];
 
@@ -23,9 +24,11 @@ export const SAKURA_MACARON_STOPS: readonly RGB[] = [
 	[159, 211, 242], // sky macaron  #9FD3F2
 ];
 
-const RESET = "\x1b[0m";
+const RESET = "\x1b[39m";
 const GRADIENT_CACHE_LIMIT = 256;
+/** LRU of static (phase 0) gradients; animated frames are never cached. */
 const gradientCache = new Map<string, string>();
+let gradientCacheMode = getColorMode();
 
 /** Soft period for footer shimmer / pulse (ms). */
 export const FOOTER_PULSE_PERIOD_MS = 1800;
@@ -60,34 +63,77 @@ export function sampleSakuraGradient(position: number, phase = 0): RGB {
 	return mix(from, to, scaled - index);
 }
 
-export function rgbForeground(color: RGB, text: string, bold = false): string {
-	// Prefer fg/bold resets over full SGR reset so surrounding theme colors can resume.
-	const open = bold ? "\x1b[1m" : "";
-	const close = bold ? "\x1b[22m\x1b[39m" : "\x1b[39m";
-	return `${open}\x1b[38;2;${color[0]};${color[1]};${color[2]}m${text}${close}`;
+const graphemeSegmenter =
+	typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+		? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+		: undefined;
+
+/** Split into user-perceived characters; ASCII fast path avoids the segmenter. */
+export function splitGraphemes(text: string): string[] {
+	if (/^[\x00-\x7f]*$/.test(text) || !graphemeSegmenter) return [...text];
+	return Array.from(graphemeSegmenter.segment(text), (part) => part.segment);
 }
 
-function foreground(color: RGB, text: string): string {
-	return `\x1b[38;2;${color[0]};${color[1]};${color[2]}m${text}`;
+function cacheGet(key: string): string | undefined {
+	const mode = getColorMode();
+	if (mode !== gradientCacheMode) {
+		// A color-mode change invalidates every cached string (they embed SGR sequences).
+		gradientCache.clear();
+		gradientCacheMode = mode;
+		return undefined;
+	}
+	const cached = gradientCache.get(key);
+	if (cached !== undefined) {
+		// Refresh recency (Map preserves insertion order).
+		gradientCache.delete(key);
+		gradientCache.set(key, cached);
+	}
+	return cached;
+}
+
+function cacheSet(key: string, value: string): void {
+	if (gradientCache.size >= GRADIENT_CACHE_LIMIT) {
+		const oldest = gradientCache.keys().next().value;
+		if (oldest !== undefined) gradientCache.delete(oldest);
+	}
+	gradientCache.set(key, value);
+}
+
+/** Test helper: current number of cached gradient strings. */
+export function gradientCacheSize(): number {
+	return gradientCache.size;
+}
+
+/** Foreground-colored text that restores only the foreground afterwards. */
+export function rgbForeground(color: RGB, text: string, bold = false): string {
+	// Prefer fg/bold resets over a full SGR reset so surrounding theme styles can resume.
+	const open = fgAnsi(color);
+	if (!open) return text;
+	return bold ? `\x1b[1m${open}${text}\x1b[22m\x1b[39m` : `${open}${text}\x1b[39m`;
+}
+
+function paintPositions(text: string, colorAt: (position: number) => RGB): string {
+	if (getColorMode() === "none") return text;
+	const chars = splitGraphemes(text);
+	if (chars.length === 0) return text;
+	const span = Math.max(1, chars.length - 1);
+	let rendered = "";
+	for (let index = 0; index < chars.length; index++) {
+		const char = chars[index] ?? "";
+		rendered += char === " " ? char : `${fgAnsi(colorAt(index / span))}${char}`;
+	}
+	return `${rendered}${RESET}`;
 }
 
 /** Render Sakura → sky gradient. Optional phase shifts the stops for shimmer. */
 export function renderSakuraGradient(text: string, phase = 0): string {
-	const cacheKey = phase === 0 ? text : `${phase.toFixed(3)}|${text}`;
-	const cached = gradientCache.get(cacheKey);
+	if (!text) return text;
+	// Animated frames change every tick: never let them evict the static working set.
+	if (phase !== 0) return paintPositions(text, (pos) => sampleSakuraGradient(pos, phase));
+	const cached = cacheGet(text);
 	if (cached !== undefined) return cached;
-	const chars = [...text];
-	if (chars.length === 0) return text;
-	const span = Math.max(1, chars.length - 1);
-	const rendered = `${chars
-		.map((char, index) =>
-			char === " " ? char : foreground(sampleSakuraGradient(index / span, phase), char),
-		)
-		.join("")}${RESET}`;
-	if (gradientCache.size >= GRADIENT_CACHE_LIMIT) {
-		gradientCache.delete(gradientCache.keys().next().value ?? "");
-	}
-	gradientCache.set(cacheKey, rendered);
+	const rendered = paintPositions(text, (pos) => sampleSakuraGradient(pos));
+	cacheSet(text, rendered);
 	return rendered;
 }
 
@@ -96,25 +142,14 @@ export function renderSakuraGradient(text: string, phase = 0): string {
  * Avoids the linear L→R look where the right corner jumps to sky cyan.
  */
 export function renderSakuraFrameGradient(text: string): string {
-	const cacheKey = `frame|${text}`;
-	const cached = gradientCache.get(cacheKey);
+	if (!text) return text;
+	const cacheKey = `\0frame\0${text}`;
+	const cached = cacheGet(cacheKey);
 	if (cached !== undefined) return cached;
-	const chars = [...text];
-	if (chars.length === 0) return text;
-	const span = Math.max(1, chars.length - 1);
-	const rendered = `${chars
-		.map((char, index) => {
-			if (char === " ") return char;
-			const pos = index / span;
-			// 0 → 1 → 0 so left/right corners share sakura pink.
-			const mirrored = pos <= 0.5 ? pos * 2 : (1 - pos) * 2;
-			return foreground(sampleSakuraGradient(mirrored), char);
-		})
-		.join("")}${RESET}`;
-	if (gradientCache.size >= GRADIENT_CACHE_LIMIT) {
-		gradientCache.delete(gradientCache.keys().next().value ?? "");
-	}
-	gradientCache.set(cacheKey, rendered);
+	const rendered = paintPositions(text, (pos) =>
+		sampleSakuraGradient(pos <= 0.5 ? pos * 2 : (1 - pos) * 2),
+	);
+	cacheSet(cacheKey, rendered);
 	return rendered;
 }
 
@@ -145,6 +180,8 @@ const GAUGE_STOPS: Record<GaugeTier, readonly RGB[]> = {
 	],
 };
 
+const GAUGE_TRACK: RGB = [180, 168, 184]; // soft lilac track, readable on light + dark
+
 function sampleStops(stops: readonly RGB[], position: number, phase = 0): RGB {
 	const n =
 		phase === 0
@@ -158,7 +195,7 @@ function sampleStops(stops: readonly RGB[], position: number, phase = 0): RGB {
 }
 
 /**
- * Truecolor macaron gauge. Fill walks a tier palette; soft hotspot with phase.
+ * Macaron gauge. Fill walks a tier palette; soft hotspot with phase.
  * Empty track is soft lilac (readable on light + dark).
  */
 export function renderMacaronGauge(
@@ -192,7 +229,7 @@ export function renderMacaronGauge(
 			body.push(rgbForeground(lit, on));
 		} else {
 			// Soft track — not black-grey hole on light themes
-			body.push(`\x1b[38;2;180;168;184m${off}\x1b[39m`);
+			body.push(paintFg(GAUGE_TRACK, off));
 		}
 	}
 	const bar = body.join("");

@@ -17,6 +17,8 @@ This package keeps Zentui's editor, user-message, footer, and configuration capa
 
 Matrix owns only its widget. Claude shimmer uses Pi's working message and indicator only while Zentui's upstream Working line is disabled; when enabled, Working line owns and styles the complete row, so the two modes do not overwrite one another.
 
+Tool cards preserve Pi's rendered body, including ANSI highlighting, indentation, and native expand/collapse behavior; Sakura adds only the frame and status rail, with no extra output cap. Self-rendered tools (including edit) and image results remain native. The `!cmd` frame likewise preserves native output. Sakura gradients, Header, Matrix, and shimmer respect the host color mode, fall back to 256 colors, and omit their color escapes with `NO_COLOR`. Header padding is fixed rather than growing with terminal height.
+
 - **Editor** — Opencode, Opencode copy-friendly, Accent Rail, and Minimalist input treatments
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
 - **Thinking (Experimental)** — optional Rail, Tree, or Streaming private thinking renderers, without owning the Working line
@@ -37,6 +39,8 @@ pi install /path/to/pi-sakura-cyberdeck
 
 Select **sakura-macaron** from `/settings`, then restart Pi once. Use `/zentui` for editor, message, footer, and layout settings, and `/sakura-matrix on|off` for the Matrix widget.
 
+Matrix keeps its existing default (enabled) and saved preferences. `on` enables rain during work, not indefinitely while idle. `/sakura-matrix preview` works even when disabled, lasts five seconds, and never changes the saved preference or interrupts already-running rain. `/sakura-matrix help` lists `fps`, `density`, and `height` controls. Settings writes are atomic; a failed save leaves the active settings unchanged, and corrupt config is reported rather than overwritten.
+
 ## Highlights
 
 | Surface | Default | Available treatments |
@@ -48,7 +52,7 @@ Select **sakura-macaron** from `/settings`, then restart Pi once. Use `/zentui` 
 | Footer | `starship` | Native, Starship, Hidden |
 | Selector borders | `zentui` | Independent enablement and color source |
 
-The Starship Footer shows directory, Git, runtime, context, tokens, and cost. Optional segments include model/provider, package version, session duration, `user@host`, time, OS, Git commit, Git metrics, and third-party extension statuses. The layout is segment-driven by default and supports a complete Starship-style format template.
+The Starship Footer shows directory, Git, runtime, context, tokens, and cost. Failed Git status probes clear stale counts and show `[git n/a]` in the branch/status segment until recovery. Project probes are skipped when the host reports an untrusted project. Optional segments include model/provider, package version, session duration, `user@host`, time, OS, Git commit, Git metrics, and third-party extension statuses. The layout is segment-driven by default and supports a complete Starship-style format template.
 
 When the Working line is enabled, third-party extensions can publish keyed text segments through Pi's shared event bus. Zentui composes those segments into the owned row so Classic and KITT animate across them with the built-in content. See the [Working-line extension integration](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#working-line-extension-integration) reference.
 
