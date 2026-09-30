@@ -17,7 +17,7 @@ This package keeps Zentui's editor, user-message, footer, and configuration capa
 
 Matrix owns only its widget. Claude shimmer uses Pi's working message and indicator only while Zentui's upstream Working line is disabled; when enabled, Working line owns and styles the complete row, so the two modes do not overwrite one another.
 
-Tool cards preserve Pi's rendered body, including ANSI highlighting, indentation, and native expand/collapse behavior; Sakura adds only the frame and status rail, with no extra output cap. Self-rendered tools (including edit) and image results remain native. The `!cmd` frame likewise preserves native output. Sakura gradients, Header, Matrix, and shimmer respect the host color mode, fall back to 256 colors, and omit their color escapes with `NO_COLOR`. Header padding is fixed rather than growing with terminal height.
+Tool cards preserve Pi's rendered body, including ANSI highlighting and indentation. Collapsed cards show at most eight native body rows plus an expansion hint, so long commands (including codemode scripts and write payloads) do not fill the transcript. Pi's tool expansion shortcut or clicking the hint in fullscreen restores all native rows, with no extra expanded-output cap. Self-rendered tools (including edit) and image results remain native. The `!cmd` frame likewise preserves native output. Sakura gradients, Header, Matrix, and shimmer respect the host color mode, fall back to 256 colors, and omit their color escapes with `NO_COLOR`. Header padding is fixed rather than growing with terminal height.
 
 - **Editor** — Opencode, Opencode copy-friendly, Accent Rail, and Minimalist input treatments
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages

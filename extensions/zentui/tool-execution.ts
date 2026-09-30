@@ -4,7 +4,7 @@ import {
 	type Theme,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { getColorMode, syncColorMode } from "../shared/color";
 import {
 	rgbForeground as paintFg,
@@ -17,8 +17,9 @@ import { installPrototypePatch } from "./prototype-patch-registry";
 /**
  * Tool card chrome: sakura gradient title frame + status rail around Pi's own tool rendering.
  *
- * Body lines are Pi's render output at `width - 3` columns, passed through byte-for-byte: the
- * pack never rewrites, strips or truncates tool output. Tools that draw their own shell
+ * Visible body lines are Pi's render output at `width - 3`, passed through byte-for-byte.
+ * Collapsed cards show a bounded preview; expanding restores every native row without a cap.
+ * Tools that draw their own shell
  * (`renderShell: "self"`, e.g. edit), image results, and hidden cards stay fully stock.
  */
 
@@ -31,11 +32,19 @@ type ToolExecutionRuntime = {
 	result?: { isError?: unknown; content?: unknown };
 	toolName?: unknown;
 	expanded?: unknown;
+	setExpanded?: unknown;
 	hideComponent?: unknown;
 	getRenderShell?: unknown;
 };
 
-type MouseEventLike = { x: number; y: number; width: number; height: number };
+type MouseEventLike = {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	type?: string;
+	button?: string;
+};
 
 type CardRender = {
 	width: number;
@@ -47,6 +56,8 @@ type CardRender = {
 	colorMode: string;
 	/** Number of leading inner lines kept outside the frame (Pi's spacer row). */
 	prefix: number;
+	/** Exclusive native row index retained in the preview; the remaining rows are only hidden. */
+	bodyEnd: number;
 	inner: readonly string[];
 	lines: string[];
 };
@@ -63,6 +74,7 @@ const RIGHT_RAIL = "│";
 const LEFT_COLUMNS = 2; // visible width of LEFT_RAIL
 const RAIL_COLUMNS = 3; // visible width of LEFT_RAIL + RIGHT_RAIL
 const MIN_WIDTH = 12;
+export const TOOL_PREVIEW_ROWS = 8;
 
 function toolStatus(runtime: ToolExecutionRuntime): ToolStatus | undefined {
 	if (typeof runtime.isPartial !== "boolean") return undefined; // unknown shape: stay stock
@@ -136,15 +148,27 @@ function buildCard(
 	width: number,
 	status: ToolStatus,
 	name: string,
-): { lines: string[]; prefix: number } {
+	collapse: boolean,
+): { lines: string[]; prefix: number; bodyEnd: number } {
 	const prefix = inner[0] === "" ? 1 : 0; // Pi's Spacer(1) row stays above the frame
 	const left = paintFg(STATUS_RGB[status], LEFT_RAIL);
 	const right = paintFg(FRAME_RGB, RIGHT_RAIL);
 	const lines: string[] = inner.slice(0, prefix);
 	lines.push(renderSakuraFrameGradient(frameTop(statusText(status, name), width)));
-	for (let i = prefix; i < inner.length; i++) lines.push(`${left}${inner[i]}${right}`);
+	const bodyEnd = collapse ? Math.min(inner.length, prefix + TOOL_PREVIEW_ROWS) : inner.length;
+	for (let i = prefix; i < bodyEnd; i++) lines.push(`${left}${inner[i]}${right}`);
+	if (bodyEnd < inner.length) {
+		const hint = truncateToWidth(
+			`… ${inner.length - bodyEnd} more lines · expand`,
+			width - RAIL_COLUMNS,
+			"",
+		);
+		lines.push(
+			`${left}${hint}${" ".repeat(Math.max(0, width - RAIL_COLUMNS - visibleWidth(hint)))}${right}`,
+		);
+	}
 	lines.push(renderSakuraFrameGradient(frameBottom(width)));
-	return { lines, prefix };
+	return { lines, prefix, bodyEnd };
 }
 
 /**
@@ -156,7 +180,7 @@ export function mapCardMouseEvent<T extends MouseEventLike>(
 	card: CardRender,
 ): T | undefined {
 	const { prefix, inner } = card;
-	const bodyEnd = prefix + 1 + (inner.length - prefix); // exclusive row index of the body
+	const bodyEnd = card.bodyEnd + 1; // exclusive rendered body row, before any preview hint
 	let y: number;
 	if (event.y < prefix) y = event.y;
 	else if (event.y > prefix && event.y < bodyEnd) y = event.y - 1;
@@ -231,7 +255,13 @@ export function installToolExecutionStyle(
 				return cached.lines;
 			}
 
-			const card = buildCard(lines, width, status, name);
+			const card = buildCard(
+				lines,
+				width,
+				status,
+				name,
+				runtime.expanded === false && typeof runtime.setExpanded === "function",
+			);
 			cards.set(receiver as object, {
 				width,
 				innerWidth,
@@ -240,6 +270,7 @@ export function installToolExecutionStyle(
 				name,
 				colorMode,
 				prefix: card.prefix,
+				bodyEnd: card.bodyEnd,
 				inner: lines,
 				lines: card.lines,
 			});
@@ -269,6 +300,23 @@ export function installToolExecutionStyle(
 						event.width !== card.width
 					) {
 						return Reflect.apply(predecessor, receiver, args);
+					}
+					// The preview hint has no native counterpart. Expand through Pi's own state
+					// transition; never forward it as a click on a hidden output row.
+					if (card.bodyEnd < card.inner.length && event.y === card.bodyEnd + 1) {
+						const runtime = receiver as ToolExecutionRuntime;
+						if (
+							event.type === "click" &&
+							event.button === "left" &&
+							event.x >= LEFT_COLUMNS &&
+							event.x < LEFT_COLUMNS + card.innerWidth &&
+							typeof runtime.setExpanded === "function"
+						) {
+							runtime.setExpanded(true);
+							cards.delete(receiver as object);
+							return { handled: true, render: true };
+						}
+						return undefined;
 					}
 					const mapped = mapCardMouseEvent(event, card);
 					if (!mapped) return undefined;
