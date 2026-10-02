@@ -97,7 +97,8 @@ describe.each(["truecolor", "256color", "none"] as const)(
 			const snapshot = structuredClone(config);
 			const theme = { name: "sakura-macaron", fg: (_color: string, text: string) => text } as Theme;
 			const lines = renderUserMessageStyle({ text: "hello", width: 30, theme, config });
-			expect(lines[0]).toBe(renderSakuraFrameGradient("─".repeat(30)));
+			expect(lines[0]).toBe(renderSakuraFrameGradient(`╭${"─".repeat(28)}╮`));
+			expect(lines.at(-1)).toBe(renderSakuraFrameGradient(`╰${"─".repeat(28)}╯`));
 			expect(lines[1]?.endsWith(renderSakuraFrameGradient("│"))).toBe(true);
 			const quietRule = paintFg(SAKURA_BORDER_RGB, "─".repeat(30));
 			if (mode !== "none") expect(lines[0]).not.toBe(quietRule);
@@ -137,7 +138,7 @@ describe.each(["truecolor", "256color", "none"] as const)(
 			const theme = { name: "dark", fg: (_color: string, text: string) => text } as Theme;
 			const rule = renderSakuraFrameGradient("─".repeat(30));
 			const lines = renderUserMessageStyle({ text: "hello", width: 30, theme, config });
-			expect(lines[0]).toBe(rule);
+			expect(lines[0]).toBe(renderSakuraFrameGradient(`╭${"─".repeat(28)}╮`));
 			const selector = {
 				render: (width: number) => ["─".repeat(width), "native body", "─".repeat(width)],
 			};

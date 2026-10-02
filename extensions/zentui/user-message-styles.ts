@@ -126,10 +126,18 @@ function renderRail(theme: Theme | undefined, config: ZentuiConfig): string {
 function renderFramed(input: UserMessageStyleRenderInput): string[] {
 	const { width, theme, config } = input;
 	if (width <= 0) return [""];
-	const rail = renderRail(theme, config);
-	const rightRail =
-		isSakuraMacaronVisuals(componentColor(config, "userMessages", "border"), theme) &&
-		config.icons.rail.length > 0
+	const sakura = isSakuraMacaronVisuals(componentColor(config, "userMessages", "border"), theme);
+	// Box drawing needs no Nerd Font, even when Auto selects ASCII icons.
+	const rounded =
+		width >= 3 &&
+		sakura &&
+		config.icons.mode !== "ascii" &&
+		(config.icons.rail === "|" || config.icons.rail === "│");
+	const padding = width >= 5 ? " " : "";
+	const rail = rounded ? `${accent(theme, config, "│")}${padding}` : renderRail(theme, config);
+	const rightRail = rounded
+		? `${padding}${border(theme, config, "│")}`
+		: sakura && config.icons.rail.length > 0
 			? ` ${border(theme, config, config.icons.rail)}`
 			: "";
 	const chromeWidth = visibleWidth(rail) + visibleWidth(rightRail);
@@ -139,8 +147,10 @@ function renderFramed(input: UserMessageStyleRenderInput): string[] {
 		const available = Math.max(0, width - chromeWidth);
 		return truncateToWidth(`${rail}${fillLine(line, available)}${rightRail}`, width, "");
 	};
-	const rule = truncateToWidth(border(theme, config, "─".repeat(width)), width, "");
-	return [rule, row(""), ...body.map(row), row(""), rule];
+	const rule = "─".repeat(width - (rounded ? 2 : 0));
+	const top = border(theme, config, rounded ? `╭${rule}╮` : rule);
+	const bottom = border(theme, config, rounded ? `╰${rule}╯` : rule);
+	return [top, row(""), ...body.map(row), row(""), bottom];
 }
 
 function renderFramedCopyFriendly(input: UserMessageStyleRenderInput): string[] {
@@ -205,6 +215,7 @@ export function userMessageStyleCacheKey(config: ZentuiConfig): string {
 		case "framed":
 			return [
 				"framed",
+				config.icons.mode === "ascii" ? "ascii" : "rounded",
 				messages.colorSource,
 				componentColor(config, "userMessages", "accent") ?? "<inherit>",
 				componentColor(config, "userMessages", "border") ?? "<inherit>",

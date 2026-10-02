@@ -53,13 +53,44 @@ describe("pure user-message styles", () => {
 		]);
 	});
 
-	it("closes Sakura framed message rows with a width-stable right rail", () => {
-		const sakuraTheme = Object.assign(ansiTheme(), { name: "sakura-macaron" }) as Theme;
-		const lines = render("framed", "Hello", 12, sakuraTheme);
-		const body = lines.slice(1, -1).map(plain);
-
-		expect(body).toEqual(["│          │", "│ Hello    │", "│          │"]);
+	it.each(["auto", "nerd"])("joins Sakura message corners and rails in %s mode", (mode) => {
+		const theme = Object.assign(ansiTheme(), { name: "sakura-macaron" }) as Theme;
+		const config = mergeConfig({ icons: { mode } }, {});
+		const lines = renderUserMessageStyle({ text: "Hello", width: 12, theme, config });
+		expect(lines.map(plain)).toEqual([
+			"╭──────────╮",
+			"│          │",
+			"│ Hello    │",
+			"│          │",
+			"╰──────────╯",
+		]);
 		expect(lines.every((line) => visibleWidth(line) === 12)).toBe(true);
+	});
+
+	it("keeps narrow Sakura frames closed without consuming the content cells", () => {
+		const theme = Object.assign(ansiTheme(), { name: "sakura-macaron" }) as Theme;
+		for (const width of [3, 4, 5]) {
+			const lines = render("framed", "abc", width, theme).map(plain);
+			expect(lines[0]).toMatch(/^╭─+╮$/);
+			expect(lines.at(-1)).toMatch(/^╰─+╯$/);
+			expect(lines.every((line) => visibleWidth(line) === width)).toBe(true);
+			const body = lines.slice(1, -1);
+			expect(body.every((line) => /^│.*│$/.test(line))).toBe(true);
+			expect(body.map((line) => line.slice(1, -1).trim()).join("")).toBe("abc");
+		}
+	});
+
+	it("preserves ASCII and custom rails and keys the framed cache by icon mode", () => {
+		const theme = Object.assign(ansiTheme(), { name: "sakura-macaron" }) as Theme;
+		for (const icons of [{ mode: "ascii" }, { rail: ">" }]) {
+			const config = mergeConfig({ icons }, {});
+			const lines = renderUserMessageStyle({ text: "Hello", width: 12, theme, config });
+			expect(plain(lines[0] ?? "")).toBe("─".repeat(12));
+		}
+		const auto = mergeConfig({ icons: { mode: "auto" } }, {});
+		const ascii = structuredClone(auto);
+		ascii.icons.mode = "ascii";
+		expect(userMessageStyleCacheKey(auto)).not.toBe(userMessageStyleCacheKey(ascii));
 	});
 
 	it("adds one leading space to copy-friendly framed message text", () => {
