@@ -1,6 +1,6 @@
 # Sakura Cyberdeck
 
-A Sakura Macaron visual pack for [Pi](https://pi.dev), built on the full Zentui experience.
+A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.28.0. Sakura Cyberdeck v3 requires Pi 0.85.0 or newer.
 
 This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, focused gradient accents, quiet tool cards, and thinking trails.
 
@@ -53,6 +53,8 @@ Matrix keeps its existing default (enabled) and saved preferences. `on` enables 
 | Selector borders | `zentui` | Independent enablement and color source |
 
 The Starship Footer shows directory, Git, runtime, context, tokens, and cost. Failed Git status probes clear stale counts and show `[git n/a]` in the branch/status segment until recovery. Project probes are skipped when the host reports an untrusted project. Optional segments include model/provider, package version, session duration, `user@host`, time, OS, Git commit, Git metrics, and third-party extension statuses. The layout is segment-driven by default and supports a complete Starship-style format template.
+
+Editor and Starship Footer templates can show custom values published by other extensions. Minimalist additionally supports independent top/bottom left, middle, and right metadata templates, while preserving its working and viewport indicators. See [custom variables and metadata templates](./docs/configuration.md).
 
 When the Working line is enabled, third-party extensions can publish keyed text segments through Pi's shared event bus. Zentui composes those segments into the owned row so Classic and KITT animate across them with the built-in content. See the [Working-line extension integration](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#working-line-extension-integration) reference.
 
@@ -177,7 +179,7 @@ Rail shows every parsed label in each native contiguous thinking run (`│ Label
 
 Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, folds completed reasoning under `Thought` or current-session `Thought for 12.3s`, and owns the configured thinking-toggle binding (Ctrl+T by default) only when started in Streaming. Its input listener and timer are acquired only for an enabled Streaming session start; startup acquisition failure uses native thinking and marks Streaming unavailable. Restored completions cannot recover a duration because Pi does not persist the thinking-end timestamp. Expand/refold and lifecycle tracking are bounded to 256 retained assistant components; evicted entries are first restored natively. All modes restore/dispose on shutdown. Thinking (Experimental) never writes the Working line and does not change its existing **Thinking time** option, working text, Footer, Editor, statuses, or model behavior.
 
-Pi 0.84 also provides a native fullscreen TUI with a sticky editor and Footer. Both tested versions are covered by a fullscreen live-transition PTY smoke in addition to the standard matrix. Zentui does not enable fullscreen automatically; select it from Pi's `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`.
+Pi provides a native fullscreen TUI with a sticky editor and Footer. Both tested Thinking versions are covered by a fullscreen live-transition PTY smoke in addition to the standard matrix. Zentui does not change Pi's TUI mode. Pi 1.0 defaults to fullscreen; use `--tui-mode regular` to keep terminal scrollback. On older Pi versions, select fullscreen from `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`. The full unit-test and typecheck matrix covers Pi 0.85.0, 0.87.1, and 1.0.0, including both native user-message layouts.
 
 **Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
 
