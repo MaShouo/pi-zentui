@@ -420,6 +420,15 @@ function lowRailPrompt(config: ZentuiConfig, uiTheme: Theme, reset: string): str
 		: "";
 }
 
+function usesRoundedEditorFrame(config: ZentuiConfig, uiTheme: Theme): boolean {
+	return (
+		config.components.editor.style === "opencode" &&
+		config.icons.mode !== "ascii" &&
+		(config.icons.rail === "|" || config.icons.rail === "│") &&
+		isSakuraMacaronVisuals(componentColor(config, "editor", "border"), uiTheme)
+	);
+}
+
 function getEditorChromeWidths(
 	config: ZentuiConfig,
 	uiTheme: Theme,
@@ -427,6 +436,8 @@ function getEditorChromeWidths(
 	shellMode = false,
 ) {
 	const lowRail = isLowRailPolishedStyle(config.components.editor.style);
+	// Auto may choose ASCII icons, but box drawing does not require a Nerd Font.
+	const railGlyph = usesRoundedEditorFrame(config, uiTheme) ? "│" : config.icons.rail;
 	const prompt = lowRailPrompt(config, uiTheme, reset);
 	const chromeColor = shellMode
 		? editorShellColor(config)
@@ -438,13 +449,13 @@ function getEditorChromeWidths(
 				config.components.editor.colorSource,
 				chromeColor.color,
 				chromeColor.fallback,
-				config.icons.rail,
+				railGlyph,
 			)}${reset} `;
 	const rightRail =
 		!lowRail &&
 		config.icons.rail.length > 0 &&
 		isSakuraMacaronVisuals(componentColor(config, "editor", "border"), uiTheme)
-			? ` ${renderSakuraSolid(config.icons.rail)}`
+			? ` ${renderSakuraSolid(railGlyph)}`
 			: "";
 	return {
 		prompt,
@@ -522,8 +533,14 @@ function plainRenderedText(line: string): string {
 function parseEditorBorder(
 	line: string,
 	direction: keyof ViewportCounts,
+	rounded = false,
 ): { count?: string } | undefined {
-	const plain = ansiStrippedText(line);
+	let plain = ansiStrippedText(line);
+	if (rounded) {
+		const [left, right] = direction === "above" ? ["╭", "╮"] : ["╰", "╯"];
+		if (!plain.startsWith(left) || !plain.endsWith(right)) return undefined;
+		plain = plain.slice(1, -1);
+	}
 	if (/^─+$/.test(plain)) return {};
 
 	const arrow = direction === "above" ? "↑" : "↓";
@@ -549,8 +566,9 @@ function unwrapPolishedFrameOnly(
 	shellMode = false,
 ): { editorLines: string[]; viewport: ViewportCounts } | undefined {
 	if (lines.length < 5) return undefined;
-	const top = parseEditorBorder(lines[0] ?? "", "above");
-	const bottom = parseEditorBorder(lines.at(-1) ?? "", "below");
+	const rounded = usesRoundedEditorFrame(config, uiTheme);
+	const top = parseEditorBorder(lines[0] ?? "", "above", rounded);
+	const bottom = parseEditorBorder(lines.at(-1) ?? "", "below", rounded);
 	if (!top || !bottom) return undefined;
 
 	const viewport = { above: top.count, below: bottom.count };
@@ -578,9 +596,12 @@ function unwrapPolishedFrameOnly(
 		return { editorLines: unwrapped, viewport };
 	}
 
-	const { rail } = getEditorChromeWidths(config, uiTheme, "\x1b[0m", shellMode);
+	const { rail, rightRail } = getEditorChromeWidths(config, uiTheme, "\x1b[0m", shellMode);
 	if (!rail || interior.some((line) => !line.startsWith(rail))) return undefined;
-	const unrailed = interior.map((line) => line.slice(rail.length));
+	if (rightRail && interior.some((line) => !line.endsWith(rightRail))) return undefined;
+	const unrailed = interior.map((line) =>
+		line.slice(rail.length, rightRail ? -rightRail.length : undefined),
+	);
 	if (
 		plainRenderedText(unrailed[0] ?? "").trim() !== "" ||
 		plainRenderedText(unrailed.at(-2) ?? "").trim() !== ""
@@ -595,10 +616,11 @@ function splitPolishedFrame(
 	uiTheme: Theme,
 	shellMode = false,
 ): PolishedFrameSplit | undefined {
-	if (!parseEditorBorder(lines[0] ?? "", "above")) return undefined;
+	const rounded = usesRoundedEditorFrame(config, uiTheme);
+	if (!parseEditorBorder(lines[0] ?? "", "above", rounded)) return undefined;
 
 	for (let bottomIndex = lines.length - 1; bottomIndex >= 4; bottomIndex--) {
-		if (!parseEditorBorder(lines[bottomIndex] ?? "", "below")) continue;
+		if (!parseEditorBorder(lines[bottomIndex] ?? "", "below", rounded)) continue;
 		const frame = unwrapPolishedFrameOnly(
 			lines.slice(0, bottomIndex + 1),
 			config,
@@ -1002,29 +1024,40 @@ export function renderPolishedEditorFrame({
 			return renderStaticBorder(text);
 		}
 	};
-	let top = renderBorder(
+	const rounded = usesRoundedEditorFrame(config, uiTheme);
+	const borderWidth = width - (rounded ? 2 : 0);
+	const frameBorder = (text: string, direction: keyof ViewportCounts) => {
+		if (!rounded) return renderBorder(text);
+		const [left, right] = direction === "above" ? ["╭", "╮"] : ["╰", "╯"];
+		// Border payloads contain only single-cell box glyphs and viewport text.
+		// Slice before painting: ANSI-aware truncation can append a reset sequence.
+		return renderBorder(`${left}${text.slice(0, borderWidth)}${right}`);
+	};
+	let top = frameBorder(
 		renderEditorBorder(
-			width,
+			borderWidth,
 			"above",
 			config.components.editor.viewportIndicators ? viewport.above : undefined,
 		),
+		"above",
 	);
 	if (workingLineFrame && width >= MIN_WORKING_LINE_BORDER_WIDTH) {
-		const label = truncateToWidth(workingLineFrame, width - 6, "…");
-		top = `${renderBorder("── ")}${label}${renderBorder(
+		const label = truncateToWidth(workingLineFrame, borderWidth - 6, "…");
+		top = `${renderBorder(rounded ? "╭── " : "── ")}${label}${renderBorder(
 			` ${renderEditorBorder(
-				width - visibleWidth(label) - 4,
+				borderWidth - visibleWidth(label) - 4,
 				"above",
 				config.components.editor.viewportIndicators ? viewport.above : undefined,
-			)}`,
+			).slice(0, borderWidth - visibleWidth(label) - 4)}${rounded ? "╮" : ""}`,
 		)}`;
 	}
-	const bottom = renderBorder(
+	const bottom = frameBorder(
 		renderEditorBorder(
-			width,
+			borderWidth,
 			"below",
 			config.components.editor.viewportIndicators ? viewport.below : undefined,
 		),
+		"below",
 	);
 	const completionLines =
 		selectedPolishedConfig(config)?.completionMenu === "palette"
@@ -1052,7 +1085,11 @@ export function renderPolishedEditorFrame({
 			]
 		: [
 				top,
-				...lines.map((line) => `${rail}${fillLine(line, innerWidth)}${rightRail}`),
+				...lines.map((line) =>
+					rounded && width < railWidth
+						? `${renderBorder("│")}${fillLine(line, width - 2)}${renderBorder("│")}`
+						: `${rail}${fillLine(line, innerWidth)}${rightRail}`,
+				),
 				bottom,
 				...completionLines,
 			];
