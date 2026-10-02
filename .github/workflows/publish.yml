@@ -12,6 +12,8 @@ permissions:
 
 jobs:
   publish:
+    # Sakura Cyberdeck releases are GitHub-only; keep npm publishing upstream-only.
+    if: github.repository == 'lmilojevicc/pi-zentui'
     runs-on: ubuntu-latest
     environment: npm-publish
 
@@ -46,11 +48,21 @@ jobs:
 
   release:
     needs: publish
+    if: ${{ always() && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check tag matches package version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          test "$VERSION" = "$TAG"
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

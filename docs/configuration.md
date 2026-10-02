@@ -422,7 +422,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
 - `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
-- All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, 0.84.4, and 0.85.1. The decorator also duck-types Pi 0.85 thinking `MouseRegion` wrappers; Streaming temporarily clears native per-run visibility overrides so fold/Ctrl+T/left-click expand keep working, while Rail and Tree still follow Pi's hidden state. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
+- All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.85.0 and 0.87.1. The decorator also duck-types Pi thinking `MouseRegion` wrappers; Streaming temporarily clears native per-run visibility overrides so fold/Ctrl+T/left-click expand keep working, while Rail and Tree still follow Pi's hidden state. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.
 - `components.workingLine.placement` (`above | border`) selects the default floating row or the Minimalist/Opencode top border. Accent Rail supports only Above. Disabled, native, unavailable, or unsafe/narrow editors and Pi versions without working-row visibility control fall back to Above without changing saved choices. Legacy `input` normalizes to `above`; the prompt remains available for typing.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
@@ -456,7 +456,7 @@ This example enables only Editor quota, without changing any component's style o
 
 **Custom templates remain authoritative.** Saved nonempty formats, including copies of old defaults, are never rewritten or augmented outside the template. Add `(  $codex_quota)` to either Opencode variant's `metadataFormat`, `($sep$codex_quota)` to a Footer wide `format`, or `$wrap_sep($codex_quota)` to `compactFormat`. Tokens remain empty when the corresponding quota toggle is off or the provider is ineligible. Unlike ordinary Footer `segments` flags, quota consent cannot be bypassed by a template.
 
-**Compatibility and privacy:** Zentui uses Pi's public active-model metadata, `modelRegistry.getProvider("openai-codex")`, and `getProviderAuth("openai-codex")`, available on tested Pi 0.84.0 and 0.85.1. Hosts without safe model/provider routing metadata do not collect or display quota; unavailable auth shows placeholders. There is no fallback to private storage or older credential APIs; the overall Pi minimum is unchanged. Auth is sent only to `https://chatgpt.com/backend-api/wham/usage`, with redirects rejected. JWT decoding is limited to the account-routing claim and is not identity verification. An opaque credential change invalidates cached data conservatively.
+**Compatibility and privacy:** Zentui uses Pi's public active-model metadata, `modelRegistry.getProvider("openai-codex")`, and `getProviderAuth("openai-codex")`, available on supported Pi 0.85.0 and 0.87.1. Hosts without safe model/provider routing metadata do not collect or display quota; unavailable auth shows placeholders. There is no fallback to private storage or older credential APIs; the Pi minimum is 0.85.0. Auth is sent only to `https://chatgpt.com/backend-api/wham/usage`, with redirects rejected. JWT decoding is limited to the account-routing claim and is not identity verification. An opaque credential change invalidates cached data conservatively.
 
 The endpoint is undocumented and may change or reject some plans. Its path and seconds-based window field are corroborated by [OpenAI's Codex client](https://github.com/openai/codex/blob/rust-v0.98.0/codex-rs/backend-client/src/client.rs); this is not a public API guarantee. Automated verification uses synthetic responses, not a live account. No reset times, countdowns, alerts, or quota history are provided.
 
@@ -524,10 +524,6 @@ Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/ze
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
-In fullscreen Pi 0.84.x, Zentui applies a private, shape-checked layout workaround only to the active owned one-row Accent Rail editor. Pi's dock currently reserves a three-row minimum for its bordered native editor; the workaround preserves that minimum but positions a one-row rail as `[blank, rail]`, leaving Pi's final padding row before the independent Footer. Other editor styles, regular mode, multiline input, viewport indicators, and autocomplete fail open unchanged. Unsupported Pi versions or changed internal shapes skip the workaround. Remove this compatibility path when [upstream Pi's fullscreen dock](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/modes/interactive/interactive-mode.ts) exposes composer minimum-size control or no longer hard-codes a three-row editor minimum. This link identifies the upstream source seam; it does not imply an upstream issue exists.
-
-Set `ZENTUI_DEBUG=1` when launching Pi to log the workaround diagnostic without adding normal UI noise. Maintainers can probe an explicitly installed compatible host with `ZENTUI_TEST_GLOBAL_PI=/path/to/pi npx vitest run test/accent-rail-layout-patch.test.ts -t "explicitly selected"`.
-
 `transparent` defaults to `false`. Set it to `true` or select **Transparent** in `/zentui` to remove only Zentui-owned input and autocomplete backgrounds while preserving geometry, rail/text colors, and native autocomplete backgrounds. The rail and gap are rendered decoration, not underlying prompt text; terminal drag or rectangular selection can still include them.
 
 ### Minimalist
@@ -537,6 +533,128 @@ Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rou
 Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable. Metadata items are joined with dashes by default (`separator: "dash"`) or dots (`separator: "dot"`).
 
 Autocomplete stays inside the frame when Pi output can be split safely. Unknown third-party layouts fail open. Footer visibility remains independently controlled by `components.footer.style`; Minimalist does not remove Pi's header.
+
+### Minimalist metadata templates and custom values
+
+Minimalist has six independently configurable border slots under
+`components.editor.styles.minimalist.formats`: `topLeft`, `topMiddle`,
+`topRight`, `bottomLeft`, `bottomMiddle`, and `bottomRight`. Missing slots keep
+Zentui's generated layout; an empty string hides that slot's configurable
+metadata. No extra rows are added. Use **Editor → Metadata templates** in
+`/zentui` to edit a slot or **Reset / inherit** to delete its override.
+
+Templates use the existing `$variable`, `${variable}`, literal text, and
+conditional `( ... )` grammar. Layout is selected by the six slot names, not
+`$fill`. Viewport counts, Bash mode, and an embedded Working line remain
+operational indicators outside the templates. Explicit templates may show
+metadata whose ordinary visibility toggle is off, but can never bypass Editor
+Codex quota consent. Nothing is appended outside an explicit template.
+
+Custom values are published by other extensions. Give them simple local names
+with `variables`, then reference those names in any slot:
+
+```json
+{
+  "components": {
+    "editor": {
+      "style": "minimalist",
+      "styles": {
+        "minimalist": {
+          "variables": { "claude_quota": "@scope/usage:quota" },
+          "formats": {
+            "topMiddle": "$claude_quota",
+            "bottomMiddle": "$session_name"
+          },
+          "extensionColorMode": "original"
+        }
+      }
+    }
+  }
+}
+```
+
+**Editor → Custom variable aliases** edits the name-to-publisher-key JSON or
+resets the aliases. Names use letters, digits, and underscores, start with a
+letter or underscore, and cannot replace built-in/structural variables or
+prototype names. At most 16 aliases are accepted; keys are nonempty, at most
+64 UTF-16 code units, and contain no whitespace or terminal controls. Reset
+removes only the edited overrides. Unrelated owners/styles and unknown raw
+configuration remain untouched. These settings never enable Footer or Working
+line.
+
+Built-ins are `$model`, `$model_id`, `$model_name`, `$provider`, `$thinking`,
+`$session_name`, `$turn_duration`, `$cost`, `$context`, `$cache_hit`,
+`$codex_quota`, `$cwd`, `$git_branch`, `$git_status`, `$tokens`, `$input_tokens`,
+and `$output_tokens`. `$turn_duration` is current/completed interaction time,
+not total session duration. Existing path, context, separator and color
+preferences still apply. `$sep` (alias `$separator`) uses the configured
+Minimalist dash/dot separator. Prefer optional groups such as
+`$model($sep$thinking)` to avoid separators around empty values.
+
+`$extensions` aggregates published custom values in deterministic key order.
+The generated top-right layout includes it after cost; setting an explicit
+slot lets you move or omit it. Values referenced through an alias anywhere in
+the six effective templates are excluded from the aggregate, avoiding an
+automatic duplicate. This is distinct from Footer's existing extension-status
+integration. Custom values do not automatically consume `ctx.ui.setStatus()`.
+
+Centers are terminal-centered and clamped between side labels; they disappear
+whole when they cannot fit. Custom values yield whole before built-in side
+metadata at narrow widths, rather than clipping quotas or activity labels.
+Large aggregates yield as one unit. Literal separators are template-owned;
+use conditional groups around optional values. Width cannot guarantee that
+all configured metadata is visible.
+
+**Custom value colors** offers Original (default) and Zentui. Original retains
+safe SGR and HTTP(S) links from the publisher, with closing resets so styles
+cannot leak into borders. Zentui strips publisher styling and applies the
+Editor color source and extension-status fallback style. Newlines and other
+terminal controls are sanitized; no publisher callbacks or commands run while
+rendering.
+
+#### Custom-value publisher protocol v1
+
+The versioned event-bus protocol publishes data, not a location. Probe before
+each refresh and keep the extension's normal fallback when inactive:
+
+```typescript
+const key = "@scope/usage:quota";
+const capability = { supported: false, active: false, key };
+pi.events.emit("zentui:variable-capability", capability);
+
+if (capability.active) {
+  pi.events.emit("zentui:variable", { key, text: "CC $459/1200" });
+  ctx.ui.setStatus(key, undefined); // remove this publisher's own fallback
+} else {
+  ctx.ui.setStatus(key, "CC $459/1200");
+}
+
+// Remove a value on publisher shutdown or when no longer applicable.
+pi.events.emit("zentui:variable", { key, text: undefined });
+```
+
+Zentui adds `version: 1` and `supported: true` to a mutable probe. Optional
+`key` tests demand for that particular publication; without it, `active`
+reports whether any custom value is demanded. Active requires the current TUI
+session and either an owned, enabled, safely decorated Minimalist/Opencode
+editor with a referencing alias or aggregate, or an owned Starship Footer with
+a referencing alias in its wide or responsive compact template. Availability
+is the union of independently owned consumers: disabling Editor never drops a
+value still demanded by Footer. It is not a guarantee of visibility at the
+current width. Startup probes may precede the first safe
+editor render: probe again on the publisher's next refresh. This protocol
+adds no Zentui poller and no capability-change notification.
+
+Use stable package-qualified keys. The namespace is global by convention;
+collisions are last-update-wins, and either publisher can remove a shared key.
+At most 16 unique values are retained, with keys up to 64 and raw text up to
+256 UTF-16 code units. Malformed/over-limit updates are ignored; existing
+keys can still update at capacity. Empty text also removes. Positive updates
+while inactive are ignored. Session replacement, shutdown, disable, loss of
+ownership, or loss of template demand drops inactive values; publishers must
+republish after reactivation. Publishers own their refresh resources, data
+freshness, and stale markers. Zentui neither fetches account data nor persists
+these values. Working-line protocol v1 remains unchanged.
 
 ### Opencode completion menu
 
@@ -592,6 +710,48 @@ The configured right zone and Pi's operational right status are right-aligned to
 
 `$context` uses Pi's current context snapshot and the live assistant context override, refreshing on the existing 250 ms streaming render cadence. `$tokens` and `$cache_hit` use authoritative persisted session snapshots, so they update at normal session synchronization boundaries rather than estimating in-progress totals. These variables are independent of Footer visibility, style, color source, and configuration.
 
+### Custom values in Opencode metadata
+
+Both Opencode styles can reference the same event-bus values used by Minimalist.
+Each style has independent `variables` and `extensionColorMode` settings:
+
+```json
+{
+  "components": {
+    "editor": {
+      "styles": {
+        "opencode": {
+          "variables": { "quota": "@scope/usage:quota" },
+          "metadataFormat": "$model( · $quota)$fill($session_name)",
+          "extensionColorMode": "original"
+        },
+        "opencode-copy-friendly": {
+          "variables": { "quota": "@scope/usage:quota" },
+          "metadataFormat": "$model$fill($quota)"
+        }
+      }
+    }
+  }
+}
+```
+
+Aliases and these formats are JSON-only for Opencode; Minimalist's settings
+controls still edit only Minimalist. Missing color mode means Original; Zentui
+uses Editor's color source and the historical extension-status fallback style.
+Custom values yield whole before built-in metadata when the row cannot fit.
+No value is automatically appended to an explicit format. Enabling/disabling
+Editor or changing a format never changes Footer choices.
+
+Starship independently supports aliases under
+`components.footer.styles.starship.variables` and Original/Zentui under
+`extensionColorMode`; both wide `format` and responsive `compactFormat` can
+reference them. See [custom Footer values](./footer-format.md#custom-extension-values).
+Native/Hidden Footer and existing `setStatus` placement/color choices are
+unchanged. Footer's compact `$extensions` continues to mean Pi's keyed extension
+statuses, not this new variable registry. Removing an alias/format reference
+releases only that consumer's demand; values survive while any other owned
+consumer still references them.
+
 Model variables use Editor `colors.model` (legacy `editorModel`), provider uses `colors.provider` (legacy `editorProvider`), and thinking uses the matching Editor level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
 
 Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $codex_quota)`, with identical spacing while quota is off. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
@@ -624,7 +784,7 @@ Only an actually open thinking phase uses `•`; a text/tool transition or resto
 
 Streaming keeps the reviewed host-rendered behavior: while open it shows the latest five rendered terminal rows beneath `Thinking 7.1s`; completion folds under `Thought` or current-session `Thought for Ns`. Restored entries have no duration because Pi does not persist a reliable thinking-end timestamp. Only a session started in active Streaming owns its validated configured `app.thinking.toggle` binding and one-second timer. Ctrl+T and a left click on a Pi 0.85 thinking `MouseRegion` share one expand/refold preference. Startup resource failures and private-shape/render failures use complete native thinking. A cleanup callback that throws while leaving Streaming is contained: Rail or Tree remains active, while Streaming becomes unavailable for that session. Component and timing tracking are bounded to 256; evicted entries are restored natively first.
 
-The exact all-mode private matrix covers Pi 0.80.5, 0.82.1, 0.83.0, 0.84.0, 0.84.4, and 0.85.1 under dark, light, and current themes, narrow/wide widths and resize; Pi 0.84.4 also has a fullscreen live-transition PTY smoke. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
+The exact all-mode private matrix covers Pi 0.85.0 and 0.87.1 under dark, light, and current themes, narrow/wide widths and resize; both versions also have fullscreen live-transition PTY coverage. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
 
 ## Working line
 
@@ -776,7 +936,7 @@ Pi 0.84 adds a native fullscreen TUI with sticky Editor and Footer plus an indep
 }
 ```
 
-Save this in Pi's `~/.pi/agent/settings.json`, select fullscreen in Pi's `/settings`, or use `--tui-mode fullscreen`. Zentui does not enable it automatically. Pi owns layout and scrolling while Zentui supplies configured components. Pi 0.80.5–0.83 remain supported for styling without native sticky placement.
+Save this in Pi's `~/.pi/agent/settings.json`, select fullscreen in Pi's `/settings`, or use `--tui-mode fullscreen`. Zentui does not enable it automatically. Pi owns layout and scrolling while Zentui supplies configured components. Zentui requires Pi 0.85.0 or newer.
 
 ## Compatibility and migration
 

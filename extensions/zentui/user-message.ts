@@ -19,6 +19,7 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 type PatchableUserMessagePrototype = {
 	children?: unknown[];
+	outputPad?: number;
 };
 
 type Cleanup = () => void;
@@ -124,9 +125,10 @@ function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: bo
 	}
 }
 
-// Normal user messages have no public framing renderer. Only adapt the native
-// zero-padding Markdown child; unfamiliar component trees delegate unchanged.
-// Shape checks also support separate same-version Pi TUI package instances.
+// Normal user messages have no public framing renderer. Adapt the native
+// Box -> Markdown tree or Pi 1.0's directly padded Markdown child; unfamiliar
+// component trees delegate unchanged. Shape checks also support separate
+// same-version Pi TUI package instances.
 function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	| {
 			renderer: Markdown;
@@ -136,16 +138,24 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	| undefined {
 	const children = instance.children;
 	if (!Array.isArray(children) || children.length !== 1) return undefined;
-	const box = children[0];
-	if (!isRecord(box) || !Array.isArray(box.children) || box.children.length !== 1) return undefined;
-	const renderer = box.children[0];
+	const outer = children[0];
+	const direct = isNativeMarkdown(outer);
+	const renderer = direct
+		? outer
+		: isRecord(outer) && Array.isArray(outer.children) && outer.children.length === 1
+			? outer.children[0]
+			: undefined;
 	if (!isNativeMarkdown(renderer)) return undefined;
 	const child = renderer as unknown as Record<string, unknown>;
 	if (
 		typeof child.text !== "string" ||
-		child.paddingX !== 0 ||
-		child.paddingY !== 0 ||
-		!isRecord(child.theme)
+		child.paddingX !== (direct ? instance.outputPad : 0) ||
+		child.paddingY !== (direct ? 1 : 0) ||
+		!isRecord(child.theme) ||
+		(direct &&
+			(typeof instance.outputPad !== "number" ||
+				!Number.isFinite(instance.outputPad) ||
+				instance.outputPad < 0))
 	)
 		return undefined;
 	for (const key of [
@@ -174,6 +184,13 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	)
 		return undefined;
 	if (child.defaultTextStyle !== undefined && !isRecord(child.defaultTextStyle)) return undefined;
+	// Pi 1.0 moves the former Box background into Markdown. Zentui owns its frame
+	// background, so keep native text styling without inheriting full-row fills.
+	const defaultTextStyle = direct
+		? Object.fromEntries(
+				Object.entries(child.defaultTextStyle ?? {}).filter(([key]) => key !== "bgColor"),
+			)
+		: child.defaultTextStyle;
 	return {
 		renderer: renderer as unknown as Markdown,
 		text: child.text,
@@ -181,7 +198,7 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 			theme: child.theme as unknown as NonNullable<
 				UserMessageStyleRenderInput["markdown"]
 			>["theme"],
-			defaultTextStyle: child.defaultTextStyle as NonNullable<
+			defaultTextStyle: defaultTextStyle as NonNullable<
 				UserMessageStyleRenderInput["markdown"]
 			>["defaultTextStyle"],
 			options: child.options as NonNullable<UserMessageStyleRenderInput["markdown"]>["options"],
