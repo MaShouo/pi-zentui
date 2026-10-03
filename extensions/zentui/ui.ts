@@ -2,8 +2,10 @@ import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-wor
 import {
 	type AutocompleteProvider,
 	type Component,
+	CURSOR_MARKER,
 	type EditorComponent,
 	type EditorTheme,
+	sliceByColumn,
 	type TUI,
 	truncateToWidth,
 	visibleWidth,
@@ -27,8 +29,10 @@ import {
 } from "./editor-mouse";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { bashModeLabel } from "./format";
+import type { HostTemplateValues } from "./host-template-values";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import { minimalistTemplateReferences } from "./minimalist-template";
+import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -51,6 +55,7 @@ type PolishedFrameSplit = {
 	/** Logical, unframed autocomplete payload rows owned by this module. */
 	trailingLines: string[];
 	viewport: ViewportCounts;
+	nativeStatusLine?: string;
 };
 
 type PolishedFrameProvenance = {
@@ -64,8 +69,10 @@ type AutocompleteListInternals = Pick<Component, "render">;
 
 type AutocompleteEditorInternals = {
 	autocompleteList?: AutocompleteListInternals;
+	debugChildren?: readonly AutocompleteListInternals[];
 	isShowingAutocomplete?: () => boolean;
 	getPaddingX?: () => number;
+	getBorderStyle?: () => unknown;
 };
 
 type AutocompleteCapture = {
@@ -103,6 +110,7 @@ export type EditorMeta = {
 	modelLabel: string;
 	modelId?: string;
 	modelName?: string;
+	fastMode?: string;
 	providerLabel: string;
 	sessionName?: string;
 	contextPercent?: number;
@@ -111,6 +119,7 @@ export type EditorMeta = {
 	outputTokens?: number;
 	cacheHitRate?: number;
 	customVariables?: ReadonlyMap<string, string>;
+	hostTemplateValues?: HostTemplateValues;
 };
 
 export type PolishedEditorFrameOptions = {
@@ -292,7 +301,7 @@ export function renderWithAutocompleteCapture<T>(
 	let own: PropertyDescriptor | undefined;
 	let predecessor: (...args: unknown[]) => unknown;
 	try {
-		const candidate = source.autocompleteList;
+		const candidate = source.autocompleteList ?? source.debugChildren?.[0];
 		if (!candidate) return { value: render() };
 		own = Object.getOwnPropertyDescriptor(candidate, "render");
 		const current = Reflect.get(candidate, "render");
@@ -534,6 +543,139 @@ function renderEditorBorder(
 	return `${indicator}${"─".repeat(Math.max(0, width - visibleWidth(indicator)))}`;
 }
 
+/** Slice native chrome in terminal cells without dropping the zero-width caret. */
+function sliceEditorColumns(line: string, start: number, length: number): string | undefined {
+	const markerIndex = line.indexOf(CURSOR_MARKER);
+	if (markerIndex < 0) return sliceByColumn(line, start, length, true);
+	if (line.indexOf(CURSOR_MARKER, markerIndex + CURSOR_MARKER.length) >= 0) return undefined;
+	const before = line.slice(0, markerIndex);
+	const after = line.slice(markerIndex + CURSOR_MARKER.length);
+	const markerColumn = visibleWidth(before);
+	if (markerColumn < start || markerColumn > start + length) return undefined;
+	const beforeLength = markerColumn - start;
+	return (
+		sliceByColumn(before, start, beforeLength, true) +
+		CURSOR_MARKER +
+		sliceByColumn(after, 0, length - beforeLength, true)
+	);
+}
+
+type NormalizedBaseFrame = PolishedFrameSplit & { nativeFrame: boolean };
+
+/** Both hosts feed the same unframed payload into the existing style renderers. */
+function normalizeBaseFrame(
+	baseRendered: string[],
+	baseWidth: number,
+	source: AutocompleteEditorInternals,
+	capture: AutocompleteCapture | undefined,
+	ownedFrame: PolishedFrameSplit | undefined,
+	trustedBaseFrame: boolean,
+): NormalizedBaseFrame | undefined {
+	if (ownedFrame) return { ...ownedFrame, nativeFrame: false };
+	const native = getOmpEditorFrame(baseRendered);
+	if (native) return { ...native, viewport: {}, nativeFrame: true };
+	if (source.getBorderStyle?.() === "band") {
+		if (!trustedBaseFrame && source.getPaddingX?.() !== 0) return undefined;
+		const autocomplete = autocompleteCount(source, capture, baseRendered, baseWidth);
+		if (!autocomplete.known) return undefined;
+		const end = baseRendered.length - autocomplete.count;
+		if (end < 2) return undefined;
+		const editorLines: string[] = [];
+		for (let index = 1; index < end; index++) {
+			const row = baseRendered[index];
+			const plain = ansiStrippedText(row.replaceAll(CURSOR_MARKER, ""));
+			if (!plain.startsWith(index === 1 ? "╰─ " : "   ")) return undefined;
+			const rowWidth = visibleWidth(row.replaceAll(CURSOR_MARKER, ""));
+			if (rowWidth < 3 || rowWidth > baseWidth) return undefined;
+			const content = sliceEditorColumns(row, 3, rowWidth - 3);
+			if (content === undefined) return undefined;
+			editorLines.push(content);
+		}
+		return {
+			editorLines,
+			trailingLines: capturedAutocompleteLines(capture, baseRendered, autocomplete.count),
+			viewport: {},
+			nativeFrame: true,
+			nativeStatusLine: baseRendered[0],
+		};
+	}
+	const top = ansiStrippedText(baseRendered[0] ?? "");
+	if (top.startsWith("╭")) {
+		// The native subclass explicitly selects zero padding. A predecessor with
+		// unknown padding is not safe to unwrap: leading spaces may be prompt text.
+		if (
+			!/^╭.*╮$/.test(top) ||
+			visibleWidth(top) !== baseWidth ||
+			top.includes(CURSOR_MARKER) ||
+			(typeof source.getBorderStyle === "function" && source.getBorderStyle() !== "box") ||
+			baseWidth < 4 ||
+			(!trustedBaseFrame &&
+				(typeof source.getPaddingX !== "function" || source.getPaddingX() !== 0))
+		)
+			return undefined;
+		const editorLines: string[] = [];
+		for (let index = 1; index < baseRendered.length; index++) {
+			const row = baseRendered[index] ?? "";
+			const plain = ansiStrippedText(row.replaceAll(CURSOR_MARKER, ""));
+			const rowWidth = visibleWidth(row.replaceAll(CURSOR_MARKER, ""));
+			const last = plain.startsWith("╰─") && plain.endsWith("╯");
+			if (
+				rowWidth < 3 ||
+				rowWidth > baseWidth + 1 ||
+				(!last && !(plain.startsWith("│") && /[│█]$/.test(plain)))
+			)
+				return undefined;
+			const leftWidth = last ? 2 : 1;
+			const content = sliceEditorColumns(row, leftWidth, rowWidth - leftWidth - 1);
+			if (content === undefined) return undefined;
+			editorLines.push(content);
+			if (last) {
+				return {
+					editorLines,
+					trailingLines: baseRendered.slice(index + 1),
+					viewport: {},
+					nativeFrame: true,
+					nativeStatusLine: /[^╭╮─\s]/u.test(top) ? baseRendered[0] : undefined,
+				};
+			}
+		}
+		return undefined;
+	}
+	// Other OMP composer shapes are not Pi frames, even when the source is native.
+	if (typeof source.getBorderStyle === "function") return undefined;
+	const autocomplete = autocompleteCount(source, capture, baseRendered, baseWidth);
+	if (!autocomplete.known) return undefined;
+	const frame = autocomplete.count > 0 ? baseRendered.slice(0, -autocomplete.count) : baseRendered;
+	if (frame.length < 2) return undefined;
+	const parsedTop = parseEditorBorder(frame[0] ?? "", "above");
+	const parsedBottom = parseEditorBorder(frame.at(-1) ?? "", "below");
+	if (!trustedBaseFrame && (!parsedTop || !parsedBottom)) return undefined;
+	return {
+		editorLines: frame.slice(1, -1),
+		trailingLines: capturedAutocompleteLines(capture, baseRendered, autocomplete.count),
+		viewport: { above: parsedTop?.count, below: parsedBottom?.count },
+		nativeFrame: false,
+	};
+}
+
+function rememberNormalizedMouseLayout(
+	lines: string[],
+	baseRendered: string[],
+	frame: NormalizedBaseFrame,
+	layout: Parameters<typeof rememberEditorMouseLayout>[4],
+): void {
+	// OMP's merged bottom has different per-row offsets and completion origins.
+	// Until its geometry is exposed, consume decorated clicks rather than send
+	// Pi coordinates to a predecessor's native input handler.
+	rememberEditorMouseLayout(
+		lines,
+		baseRendered,
+		frame.editorLines.length,
+		frame.trailingLines.length,
+		frame.nativeFrame ? { body: [], completion: [] } : layout,
+	);
+}
+
 function unwrapPolishedFrameOnly(
 	lines: string[],
 	config: ZentuiConfig,
@@ -665,38 +807,22 @@ function renderAccentRailFrameFromBase({
 	ownedFrame,
 	trustedBaseFrame = false,
 }: AccentRailFrameAdapterOptions): PolishedFrameResult {
-	if (width < ACCENT_RAIL_CHROME_WIDTH + 1 || baseRendered.length < 2) {
+	if (width < ACCENT_RAIL_CHROME_WIDTH + 1) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
 	if (ownedFrame && !isPolishedFrameSplit(ownedFrame, baseRendered.length)) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
-	const autocomplete = ownedFrame
-		? { known: true as const, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered, baseWidth);
-	if (!autocomplete.known) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const editorFrame =
-		!ownedFrame && autocomplete.count > 0
-			? baseRendered.slice(0, -autocomplete.count)
-			: baseRendered;
-	const autocompleteLines = ownedFrame
-		? ownedFrame.trailingLines
-		: capturedAutocompleteLines(autocompleteCapture, baseRendered, autocomplete.count);
-	if (editorFrame.length < 2) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const parsedTop = parseEditorBorder(editorFrame[0] ?? "", "above");
-	const parsedBottom = parseEditorBorder(editorFrame.at(-1) ?? "", "below");
-	if (!ownedFrame && !trustedBaseFrame && (!parsedTop || !parsedBottom)) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
-	const viewport = ownedFrame?.viewport ?? {
-		above: parsedTop?.count,
-		below: parsedBottom?.count,
-	};
+	const frame = normalizeBaseFrame(
+		baseRendered,
+		baseWidth,
+		autocompleteSource,
+		autocompleteCapture,
+		ownedFrame,
+		trustedBaseFrame,
+	);
+	if (!frame) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	const { editorLines, trailingLines: autocompleteLines, viewport } = frame;
 	const quotaRow = renderCodexQuota(codexQuota, uiTheme, config, "editor");
 	const quotaVisible = quotaRow && visibleWidth(quotaRow) <= width - ACCENT_RAIL_CHROME_WIDTH;
 	const renderedLines = renderAccentRailEditorFrame({
@@ -709,10 +835,11 @@ function renderAccentRailFrameFromBase({
 		config,
 	});
 	const lines = renderedLines.length === 1 ? ["", ...renderedLines, ""] : renderedLines;
+	if (frame.nativeStatusLine !== undefined) lines.unshift(frame.nativeStatusLine);
 	const bodyStart =
 		(renderedLines.length === 1 ? 1 : 0) +
 		(config.components.editor.viewportIndicators && viewport.above ? 1 : 0);
-	rememberEditorMouseLayout(lines, baseRendered, editorLines.length, autocompleteLines.length, {
+	rememberNormalizedMouseLayout(lines, baseRendered, frame, {
 		body: editorMouseCells(editorLines.length, ACCENT_RAIL_CHROME_WIDTH, bodyStart),
 		completion: editorMouseCells(
 			autocompleteLines.length,
@@ -725,7 +852,12 @@ function renderAccentRailFrameFromBase({
 	});
 	POLISHED_FRAME_SPLITS.set(lines, {
 		rows: Object.freeze([...lines]),
-		split: { editorLines, trailingLines: autocompleteLines, viewport },
+		split: {
+			editorLines,
+			trailingLines: autocompleteLines,
+			viewport,
+			nativeStatusLine: frame.nativeStatusLine,
+		},
 	});
 	return { lines, decorated: true };
 }
@@ -745,43 +877,28 @@ function renderMinimalistFrameFromBase({
 	trustedBaseFrame = false,
 	borderColor,
 }: MinimalistFrameAdapterOptions): PolishedFrameResult {
-	if (width <= 4 || baseRendered.length < 2) {
+	if (width <= 4) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
 	if (ownedFrame && !isPolishedFrameSplit(ownedFrame, baseRendered.length)) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
-	const autocomplete = ownedFrame
-		? { known: true as const, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered, baseWidth);
-	if (!autocomplete.known) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const editorFrame =
-		!ownedFrame && autocomplete.count > 0
-			? baseRendered.slice(0, -autocomplete.count)
-			: baseRendered;
-	const autocompleteLines = ownedFrame
-		? ownedFrame.trailingLines
-		: capturedAutocompleteLines(autocompleteCapture, baseRendered, autocomplete.count);
-	if (editorFrame.length < 2) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const parsedTop = parseEditorBorder(editorFrame[0] ?? "", "above");
-	const parsedBottom = parseEditorBorder(editorFrame.at(-1) ?? "", "below");
-	if (!ownedFrame && !trustedBaseFrame && (!parsedTop || !parsedBottom)) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const viewport = ownedFrame?.viewport ?? {
-		above: parsedTop?.count,
-		below: parsedBottom?.count,
-	};
-	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
+	const frame = normalizeBaseFrame(
+		baseRendered,
+		baseWidth,
+		autocompleteSource,
+		autocompleteCapture,
+		ownedFrame,
+		trustedBaseFrame,
+	);
+	if (!frame) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	const { editorLines, trailingLines: autocompleteLines, viewport } = frame;
 	// Publish safe geometry before reading the controller-gated Working frame.
 	reportWorkingLineBorder(
 		width >= MIN_WORKING_LINE_BORDER_WIDTH &&
 			Boolean(
 				ownedFrame ||
+					frame.nativeFrame ||
 					(typeof autocompleteSource.isShowingAutocomplete === "function" &&
 						autocompleteCapture?.compatible),
 			),
@@ -798,7 +915,8 @@ function renderMinimalistFrameFromBase({
 		config,
 		borderColor,
 	});
-	rememberEditorMouseLayout(lines, baseRendered, editorLines.length, autocompleteLines.length, {
+	if (frame.nativeStatusLine !== undefined) lines.unshift(frame.nativeStatusLine);
+	rememberNormalizedMouseLayout(lines, baseRendered, frame, {
 		body: editorMouseCells(editorLines.length, 2, 1),
 		completion: editorMouseCells(autocompleteLines.length, 2, editorLines.length + 2),
 	});
@@ -825,45 +943,26 @@ function renderPolishedFrame({
 }: PolishedFrameOptions): PolishedFrameResult {
 	if (width <= 2) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 
-	if (baseRendered.length < 2) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
 	if (ownedFrame && !isPolishedFrameSplit(ownedFrame, baseRendered.length)) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
 
-	const autocomplete = ownedFrame
-		? { known: true, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered, baseWidth);
-	if (!autocomplete.known) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const editorFrame =
-		!ownedFrame && autocomplete.count > 0
-			? baseRendered.slice(0, -autocomplete.count)
-			: baseRendered;
-	const autocompleteLines = ownedFrame
-		? ownedFrame.trailingLines
-		: capturedAutocompleteLines(autocompleteCapture, baseRendered, autocomplete.count);
-	if (editorFrame.length < 2) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-
-	const parsedTop = parseEditorBorder(editorFrame[0] ?? "", "above");
-	const parsedBottom = parseEditorBorder(editorFrame.at(-1) ?? "", "below");
-	if (!ownedFrame && !trustedBaseFrame && (!parsedTop || !parsedBottom)) {
-		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
-	}
-	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
-	const viewport = ownedFrame?.viewport ?? {
-		above: parsedTop?.count,
-		below: parsedBottom?.count,
-	};
+	const frame = normalizeBaseFrame(
+		baseRendered,
+		baseWidth,
+		autocompleteSource,
+		autocompleteCapture,
+		ownedFrame,
+		trustedBaseFrame,
+	);
+	if (!frame) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	const { editorLines, trailingLines: autocompleteLines, viewport } = frame;
 	// Publish safe geometry before reading the controller-gated Working frame.
 	reportWorkingLineBorder(
 		width >= MIN_WORKING_LINE_BORDER_WIDTH &&
 			Boolean(
 				ownedFrame ||
+					frame.nativeFrame ||
 					(typeof autocompleteSource.isShowingAutocomplete === "function" &&
 						autocompleteCapture?.compatible),
 			),
@@ -883,12 +982,13 @@ function renderPolishedFrame({
 		shellMode,
 		borderColor,
 	});
+	if (frame.nativeStatusLine !== undefined) lines.unshift(frame.nativeStatusLine);
 	const { railWidth } = getEditorChromeWidths(config, uiTheme, "\x1b[0m", shellMode);
 	const completionCount =
 		selectedPolishedConfig(config)?.completionMenu === "palette"
 			? omitTrailingNativeCompletionCountRow(autocompleteLines).length
 			: autocompleteLines.length;
-	rememberEditorMouseLayout(lines, baseRendered, editorLines.length, autocompleteLines.length, {
+	rememberNormalizedMouseLayout(lines, baseRendered, frame, {
 		body: editorMouseCells(editorLines.length, railWidth, 2),
 		completion: editorMouseCells(completionCount, 0, editorLines.length + 5),
 	});
@@ -898,6 +998,7 @@ function renderPolishedFrame({
 			editorLines,
 			trailingLines: autocompleteLines,
 			viewport,
+			nativeStatusLine: frame.nativeStatusLine,
 		},
 	});
 	return { lines, decorated: true };
@@ -940,6 +1041,7 @@ export function renderPolishedEditorFrame({
 				modelName: modelMeta.modelName ?? "",
 				provider: modelMeta.providerLabel,
 				thinking: thinkingLevel ?? "",
+				fastMode: modelMeta.fastMode,
 				sessionName: modelMeta.sessionName ?? "",
 				contextPercent: modelMeta.contextPercent,
 				contextWindow: modelMeta.contextWindow,
@@ -947,6 +1049,7 @@ export function renderPolishedEditorFrame({
 				outputTokens: modelMeta.outputTokens,
 				cacheHitRate: modelMeta.cacheHitRate,
 				customVariables: includeCustom ? modelMeta.customVariables : undefined,
+				hostTemplateValues: modelMeta.hostTemplateValues,
 			},
 			uiTheme,
 			config,
@@ -1077,6 +1180,8 @@ export class PolishedEditor extends CustomEditor {
 		private readonly onMetadataDecorationChange: () => void = () => {},
 	) {
 		super(tui, theme, keybindings, { paddingX: 0 });
+		// OMP accepts the legacy constructor but ignores its options argument.
+		this.setPaddingX(0);
 		this.borderColor = (text: string) => safeThemeFg(uiTheme, "border", text);
 		this.uiTheme = uiTheme;
 		this.getConfig = getConfig;
@@ -1109,6 +1214,11 @@ export class PolishedEditor extends CustomEditor {
 		}
 	}
 
+	/** OMP's native tree adapter falls back to render() for a null description. */
+	describe(): null {
+		return null;
+	}
+
 	isMetadataDecorated(): boolean {
 		return (
 			this.metadataDecorated &&
@@ -1128,7 +1238,12 @@ export class PolishedEditor extends CustomEditor {
 	}
 
 	private renderBase(width: number): string[] {
-		return this.mouse.baseRendered(width, super.render(width));
+		return this.mouse.baseRendered(
+			width,
+			renderWithOmpEditorFrame(this as unknown as AutocompleteEditorInternals, width, () =>
+				super.render(width),
+			),
+		);
 	}
 
 	canEmbedWorkingLineBorder(): boolean {

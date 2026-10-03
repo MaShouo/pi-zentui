@@ -47,6 +47,7 @@ import {
 	formatUsernameHostLabel,
 	resolveContextUsage,
 } from "./format";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import { resolveRuntimeSymbol } from "./icons";
 import type { LiveContextOverride } from "./live-context";
 import { type FooterState, modelLabelFor } from "./state";
@@ -198,11 +199,14 @@ export function installFooter(
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
 		getThinkingLevel?: () => string | undefined;
+		getFastMode?: () => string | undefined;
 		getLiveContext?: () => LiveContextOverride | undefined;
 		getCodexQuota?: () => CodexQuota | undefined;
 		getCustomVariables?: () => ReadonlyMap<string, string>;
+		getHostTemplateValues?: (names: ReadonlySet<string>) => HostTemplateValues | undefined;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
+		beforeRender?: () => void;
 	},
 ): void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
@@ -229,6 +233,7 @@ export function installFooter(
 				builtinSnapshots = new Map<string, string>(),
 			): string[] {
 				if (width <= 0) return [""];
+				hooks.beforeRender?.();
 				const config = getConfig();
 				const footer = config.components.footer;
 				const aliases = normalizeTemplateVariables(footer.styles.starship.variables, [
@@ -279,6 +284,29 @@ export function installFooter(
 				const wideReferences = wideFormat.references;
 				const compactReferences = compactFormat.references;
 				const colorSource = config.components.footer.colorSource;
+				const requestedHostNames = new Set(
+					[...wideReferences, ...compactReferences].filter(
+						(name) => isHostTemplateVariable(name) && !builtinSnapshots.has(name),
+					),
+				);
+				if (requestedHostNames.size) {
+					const hostValues = hooks.getHostTemplateValues?.(requestedHostNames);
+					for (const name of requestedHostNames) {
+						if (!isHostTemplateVariable(name)) continue;
+						const text = sanitizeEditorMetadataText(hostValues?.[name] ?? "");
+						builtinSnapshots.set(
+							name,
+							text
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										componentColor(config, "footer", "extensionStatus"),
+										text,
+									)
+								: "",
+						);
+					}
+				}
 				const iconMode = config.icons.effectiveMode;
 				const pathDisplay = config.components.footer.styles.starship.pathDisplay;
 				const formattedCwd = sanitizeEditorMetadataText(
@@ -459,6 +487,7 @@ export function installFooter(
 				const gitStateBlock = gitStateLabel ? gitStatusColor(gitStateLabel) : "";
 				const renderBuiltInVariable = (name: string): string => {
 					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
+					if (isHostTemplateVariable(canonical)) return builtinSnapshots.get(canonical) ?? "";
 					switch (canonical) {
 						case "cwd":
 							return cwdLabel;
@@ -488,6 +517,8 @@ export function installFooter(
 							const level = sanitizeExtensionStatusText(hooks.getThinkingLevel?.() ?? "");
 							return level.toLowerCase() === "off" ? "" : level;
 						}
+						case "fast_mode":
+							return sanitizeExtensionStatusText(hooks.getFastMode?.() ?? "");
 						case "session_duration":
 							return state.sessionStartEpoch
 								? renderStyleForSource(

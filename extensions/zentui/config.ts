@@ -24,6 +24,7 @@ import {
 } from "./component-colors";
 import { normalizeTemplateVariables } from "./custom-variable-format";
 import { MAX_CUSTOM_VARIABLES } from "./custom-variables";
+import { HOST_TEMPLATE_VARIABLES } from "./host-template-values";
 import {
 	ICON_GLYPH_KEYS,
 	type IconEnvironment,
@@ -136,6 +137,7 @@ export const OPENCODE_FORMAT_VARIABLES = [
 	"model_name",
 	"provider",
 	"thinking",
+	"fast_mode",
 	"session_name",
 	"context",
 	"tokens",
@@ -143,6 +145,7 @@ export const OPENCODE_FORMAT_VARIABLES = [
 	"codex_quota",
 	"sep",
 	"separator",
+	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 
 export type PolishedEditorStyleConfig = TemplateVariableConfig & {
@@ -365,7 +368,8 @@ export type ExtensionStatusesConfig = {
 
 const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
 const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
-export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)(  $codex_quota)";
+export const DEFAULT_EDITOR_METADATA_FORMAT =
+	"$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)";
 
 export type ZentuiConfig = {
 	projectRefreshIntervalMs: number;
@@ -456,6 +460,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"model",
 	"provider",
 	"thinkingLevel",
+	"fast_mode",
 	"session_duration",
 	"username",
 	"os",
@@ -476,6 +481,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"git_added",
 	"git_deleted",
 	"sep",
+	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 
 /**
