@@ -13,7 +13,7 @@ assert.equal(
 	false,
 );
 
-for (const path of [...manifest.pi.extensions, ...manifest.pi.themes]) {
+for (const path of [...manifest.pi.extensions, ...manifest.pi.themes, ...manifest.omp.extensions]) {
 	await access(resolve(root, path));
 }
 

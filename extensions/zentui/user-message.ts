@@ -20,6 +20,7 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 type PatchableUserMessagePrototype = {
 	children?: unknown[];
 	outputPad?: number;
+	describe?: () => unknown;
 };
 
 type Cleanup = () => void;
@@ -133,10 +134,45 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	| {
 			renderer: Markdown;
 			text: string;
-			input: NonNullable<UserMessageStyleRenderInput["markdown"]>;
+			input: UserMessageStyleRenderInput["markdown"];
 	  }
 	| undefined {
-	const children = instance.children;
+	// OMP keeps Markdown state in ECMAScript private fields. Its public native
+	// description exposes the complete source without truncated debug previews.
+	const directChildren = instance.children;
+	if (
+		Array.isArray(directChildren) &&
+		directChildren.length === 1 &&
+		isRecord(directChildren[0]) &&
+		typeof directChildren[0].describe === "function" &&
+		isRecord(instance) &&
+		typeof instance.describe === "function"
+	) {
+		const bubble = Reflect.apply(instance.describe, instance, []);
+		const source = Reflect.apply(directChildren[0].describe, directChildren[0], []);
+		if (
+			!isRecord(bubble) ||
+			!isRecord(bubble.p) ||
+			bubble.p.role !== "omp.user" ||
+			!Array.isArray(bubble.c) ||
+			!bubble.c.every(
+				(child) =>
+					isRecord(child) &&
+					(child.k === "md" || (isRecord(child.p) && child.p.role === "omp.user.tools")),
+			) ||
+			!isRecord(source) ||
+			source.k !== "md" ||
+			!isRecord(source.p) ||
+			typeof source.p.text !== "string"
+		)
+			return undefined;
+		return {
+			renderer: directChildren[0] as unknown as Markdown,
+			text: source.p.text,
+			input: undefined,
+		};
+	}
+	const children = directChildren;
 	if (!Array.isArray(children) || children.length !== 1) return undefined;
 	const outer = children[0];
 	const direct = isNativeMarkdown(outer);

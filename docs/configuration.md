@@ -2,7 +2,7 @@
 
 [Back to README](../README.md) · [Footer format template](./footer-format.md)
 
-Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing or invalid known values fall back to defaults. Unknown fields are ignored at runtime but preserved on disk by component save operations where they are user-owned migration or future-style data.
+Zentui reads optional user configuration from `~/.pi/agent/zentui.json` in Pi, or `~/.omp/agent/zentui.json` in Oh My Pi. The active host/profile agent-directory override is respected. Missing or invalid known values fall back to defaults. Unknown fields are ignored at runtime but preserved on disk by component save operations where they are user-owned migration or future-style data.
 
 ## Refresh and cache freshness
 
@@ -201,11 +201,11 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "viewportIndicators": true,
       "styles": {
         "opencode": {
-          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "opencode-copy-friendly": {
-          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "accent-rail": {
@@ -524,7 +524,7 @@ Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/ze
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
-`transparent` defaults to `false`. Set it to `true` or select **Transparent** in `/zentui` to remove only Zentui-owned input and autocomplete backgrounds while preserving geometry, rail/text colors, and native autocomplete backgrounds. The rail and gap are rendered decoration, not underlying prompt text; terminal drag or rectangular selection can still include them.
+`transparent` defaults to `false`. In `/zentui editor`, select **Editor style → Accent Rail**, then **Editor background → transparent** directly below it. Choose **filled** to restore Zentui's background. The control changes only `components.editor.styles.accent-rail.transparent`, removing Zentui-owned input and autocomplete backgrounds while preserving geometry, rail/text colors, and native selection backgrounds. It is also available as a saved preference while Editor is disabled. The rail and gap are rendered decoration, not underlying prompt text; terminal drag or rectangular selection can still include them.
 
 ### Minimalist
 
@@ -583,13 +583,17 @@ configuration remain untouched. These settings never enable Footer or Working
 line.
 
 Built-ins are `$model`, `$model_id`, `$model_name`, `$provider`, `$thinking`,
-`$session_name`, `$turn_duration`, `$cost`, `$context`, `$cache_hit`,
+`$fast_mode`, `$session_name`, `$turn_duration`, `$cost`, `$context`, `$cache_hit`,
 `$codex_quota`, `$cwd`, `$git_branch`, `$git_status`, `$tokens`, `$input_tokens`,
 and `$output_tokens`. `$turn_duration` is current/completed interaction time,
 not total session duration. Existing path, context, separator and color
 preferences still apply. `$sep` (alias `$separator`) uses the configured
 Minimalist dash/dot separator. Prefer optional groups such as
 `$model($sep$thinking)` to avoid separators around empty values.
+
+OMP additionally supports the [host template data](#omp-template-data) built-ins
+in all six slots and both Opencode metadata formats. These are separate from
+publisher aliases and are not included in `$extensions`.
 
 `$extensions` aggregates published custom values in deterministic key order.
 The generated top-right layout includes it after cost; setting an explicit
@@ -702,6 +706,7 @@ The configured right zone and Pi's operational right status are right-aligned to
 | `$model_name` | display name; empty when unset |
 | `$provider` | formatted provider label |
 | `$thinking` | current level; empty when `off` |
+| `$fast_mode` | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi |
 | `$session_name` | current Pi session name; empty when unnamed |
 | `$context` | compact current context usage and window, for example `26.8%/272k` |
 | `$tokens` | cumulative session input/output tokens only, for example `↑76k ↓1.6k` |
@@ -754,7 +759,7 @@ consumer still references them.
 
 Model variables use Editor `colors.model` (legacy `editorModel`), provider uses `colors.provider` (legacy `editorProvider`), and thinking uses the matching Editor level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
 
-Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $codex_quota)`, with identical spacing while quota is off. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
+Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)`, with identical Pi spacing while the optional values are empty. OMP's current per-family service tier is checked against the active model's capabilities each render, so `/fast` and model changes do not leave stale indicators. Saved nonempty templates are not rewritten; add `( · $fast_mode)` explicitly to opt in. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
 
 ## User-message styles
 
@@ -937,6 +942,99 @@ Pi 0.84 adds a native fullscreen TUI with sticky Editor and Footer plus an indep
 ```
 
 Save this in Pi's `~/.pi/agent/settings.json`, select fullscreen in Pi's `/settings`, or use `--tui-mode fullscreen`. Zentui does not enable it automatically. Pi owns layout and scrolling while Zentui supplies configured components. Zentui requires Pi 0.85.0 or newer.
+
+## Oh My Pi compatibility
+
+OMP 18.4.10+ uses `omp.ts` as a deliberately focused skin for **Editor, User messages, and Statusline only**. `/zentui` defaults to Editor and cycles through those three sections; `/zentui statusline` opens the canonical Footer owner. Footer-local Segments/Git controls and three-owner presets remain available. Working, thinking, selectors, turn summaries, and all-owner migration remain OMP-owned; their saved values are ignored by the focused runtime without being rewritten. Pi's full component set is unchanged.
+
+`npm run omp:dev` launches with only this extension; `npm run omp:install-local` links the checkout with `omp plugin link`. OMP remaps shared Pi package imports to its own host modules, avoiding duplicate runtime classes/theme state.
+
+| Surface | OMP behavior |
+| --- | --- |
+| Editor | All Zentui styles support OMP's built-in Box, Band, Claude, Pi, Borderless, Rule, Field, and Rail layouts, preserving multiline input, cursor markers, shell submission, and autocomplete. Public composer row capture leaves native input layout/preferences unchanged. Unknown/ambiguous chrome fails open; decorated mouse geometry is not guessed. |
+| Fast mode | `$fast_mode` is `fast` for supported priority service and `ultrafast` for supported OpenAI ultrafast service. Other families' preferences, off/default/flex tiers, and unsupported models render empty. This reports the selected supported tier, not a latency guarantee. |
+| User messages | Normal Markdown messages support Zentui styles. Native image, badge, synthetic, and unfamiliar message surfaces remain native. |
+| Statusline | Starship replaces the native lower status slot and suppresses native attached status content; there is no persistent footer widget or duplicate main line. Hidden suppresses main status content and retains only permitted extension statuses; Native delegates exact native behavior. Editor enablement is independent. |
+
+OMP's `setFooter()` is inert, so the adapter decorates exported native status renderers and restores only its own methods. Scope is established by matching session identity and mounted public `editor.composerFacts` identity. Verified ownership survives temporary dialog unmounting, but editor replacement, detached containers, session changes, and foreign method displacement release it; native startup/preview and other sessions remain untouched. The guarded runtime `session` field is the private compatibility boundary—changed/uninspectable shapes fail open to native. Native preferences/status maps are not rewritten. Extension statuses are recorded from successful public publications starting at extension initialization, including earlier `session_start` handlers; publications predating observation cannot be recovered. In TSP terminals, custom status is plain semantic composer text rather than ANSI frame/color parity; host-owned model-picker action/icon chrome remains native.
+
+OMP has no public editor-factory getter. Zentui observes public setter descriptors across handler scopes and preserves expanded drafts for its observed editors. Initial replacement is OMP's normal last-writer-wins behavior: an opaque pre-existing editor factory cannot be recovered or wrapped. Once a later setter is observed, cleanup restores only Zentui-owned state. Handler-local dialog cancellation remains scoped to the invoking command.
+
+### OMP template data
+
+The following explicit Zentui names are available in Opencode/copy-friendly
+`metadataFormat`, all Minimalist slots, and Starship `format`/`compactFormat`.
+OMP segment IDs are not automatically template variables. These names are
+reserved built-ins, not custom publisher aliases; `$extensions` is unchanged.
+Pi and unavailable OMP capabilities render these host values empty.
+
+| Variable | Data and distinctions |
+| --- | --- |
+| `$session_id` | Current session's full ID, not its human-readable `$session_name`. |
+| `$pr_number`, `$pr_url` | Current non-default branch's GitHub PR number and safe plain HTTPS URL. |
+| `$subagent_count` | Native active subagent badge count; background Bash/Eval jobs are not subagents. A known zero renders `0`. |
+| `$token_rate` | Output tokens/second, for example `42.5 tok/s`. Uses OMP's last-assistant average; observed live Vibe workers add the current streaming main rate, not an idle previous reply. Unknown timings remain empty. |
+| `$active_time` | Native accumulated active-processing time, including the open interval and excluding idle time, for example `1m 5s`. Not wall-clock `$session_duration` or current/completed `$turn_duration`; a known zero renders `0s`. |
+| `$hostname` | Machine hostname without the username. |
+| `$usage_quota` | Proven current-provider/model/account quota windows, for example `5 Hour: 80% left`. Distinct from independently consented `$codex_quota`. |
+| `$collaboration` | Native role and participant count, for example `host · 3 participants`; participants include the host. |
+| `$stream_state` | Native publisher state and remote viewer count. `live · 0 viewers` is active; no publisher renders empty. |
+| `$vim_mode` | Current native editor `insert`, `normal`, `visual`, or `visual-line` state. Disabled Vim renders empty. |
+| `$plan_mode`, `$goal_mode` | `Plan`/`Goal`, or `Plan paused`/`Goal paused` when the native paused state is known. |
+| `$prewalk_mode` | `Prewalk` while the attached session has a Prewalk target. |
+| `$vibe_mode` | `Vibe` while enabled. |
+| `$loop_mode` | `Loop waiting`, `Loop running`, or `Loop paused`; no loop renders empty. |
+
+Defaults and saved templates are never augmented. Add only the desired variables,
+with optional groups around labels:
+
+```json
+{
+  "components": {
+    "editor": {
+      "styles": {
+        "opencode": {
+          "metadataFormat": "$model( · $session_id)( · PR #$pr_number)( · $subagent_count agents)( · $active_time)( · $token_rate)( · $vim_mode)"
+        }
+      }
+    },
+    "footer": {
+      "styles": {
+        "starship": {
+          "format": "$cwd( · PR #$pr_number)( · $plan_mode)( · $goal_mode)( · $loop_mode)$fill$context",
+          "compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($active_time)$wrap($token_rate)"
+        }
+      }
+    }
+  }
+}
+```
+
+PR data requires a matching GitHub remote, `gh`, and read access. Read-only lookups
+capture and recheck repository/branch identity, cache for up to 30 seconds, and
+invalidate on native project/branch changes. No PR, default/detached branches,
+unavailable tooling, or lookup failure renders empty rather than a placeholder.
+
+**`$usage_quota` is opt-in by explicit template reference.** It uses the current
+native session's public usage-report API and declared public account-routing
+capability, never credentials/keys or private native quota caches. OMP may refresh
+authenticated reports from its configured providers on a cache miss. Successful
+snapshots are cached for up to five minutes, shortened by window resets; there
+is no additional polling timer or default request. Missing identity, ambiguous
+accounts, mismatched provider/model scopes, failures, and expired windows omit
+the affected data. A real zero remaining quota stays visible. The Editor and
+Footer's `$codex_quota` toggles remain separate and are not changed.
+
+Session ID/hostname use public context/OS data. Other fields require a verified
+native component/session/editor association even when Footer is Native or Hidden.
+Current public Vim/session getters take precedence where supported; native
+Plan/Goal/Vibe pause flags, Loop, collaboration, stream state, and worker-rate
+callbacks are observed only after successful public publications. Publications
+predating observation cannot be recovered from private fields. Plan/Goal/Vibe
+snapshots reset with session identity; native UI-global states stay local to
+their component across focus changes. Locked or displaced setters disable
+observation, and disposal restores only still-owned descriptors. All rendered
+text follows the consuming component's sanitization and local colors.
 
 ## Compatibility and migration
 

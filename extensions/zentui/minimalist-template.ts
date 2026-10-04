@@ -7,6 +7,7 @@ import {
 	type ReadonlyFormatToken,
 	renderFormatTokens,
 } from "./footer-format";
+import { HOST_TEMPLATE_VARIABLES } from "./host-template-values";
 
 export const MINIMALIST_FORMAT_SLOTS = [
 	"topLeft",
@@ -25,6 +26,7 @@ export const MINIMALIST_BUILTIN_VARIABLES = [
 	"model_name",
 	"provider",
 	"thinking",
+	"fast_mode",
 	"session_name",
 	"turn_duration",
 	"cost",
@@ -43,6 +45,7 @@ export const MINIMALIST_BUILTIN_VARIABLES = [
 	"fill",
 	"wrap",
 	"wrap_sep",
+	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 const reserved = new Set<string>(MINIMALIST_BUILTIN_VARIABLES);
 
@@ -96,6 +99,7 @@ export function effectiveMinimalistFormats(
 			"$extensions",
 			"$model",
 			"$thinking",
+			"$fast_mode",
 			"$context",
 			style.showCacheHit ? "$cache_hit" : "",
 			"$codex_quota",

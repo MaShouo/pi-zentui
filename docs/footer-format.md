@@ -53,6 +53,9 @@ Show model, provider, and active thinking level in the Footer:
 
 Add `$model $provider( $thinkingLevel)` to `components.footer.styles.starship.compactFormat` separately to keep these details in compact layouts. Defaults and the built-in Model info segment are unchanged.
 
+In OMP, include the independent fast-mode token with `/zentui format "$model $provider( $thinkingLevel)( · $fast_mode)"`. Add it to `compactFormat` separately if needed. `$fast_mode` uses the active model's service-tier family and OMP's model capability checks, not another provider family's saved priority preference.
+
+
 To keep metadata on the right, set both templates independently:
 
 ```json
@@ -93,6 +96,7 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$model` | | selected Footer model label |
 | `$provider` | | formatted provider label |
 | `$thinkingLevel` | | current thinking level; empty when unavailable or `off` |
+| `$fast_mode` | | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi |
 | `$package` | | project package version as `is <glyph> <version>` |
 | `$package_version` | | raw project package version |
 | `$session_duration` | `$duration` | session running time |
@@ -111,6 +115,36 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$fill` | — | wide or compact layout boundary |
 
 Each variable renders its core value without prose prefixes such as `on` or `via`; add those words as literals.
+
+### OMP host data
+
+OMP also supplies `$session_id`, `$pr_number`, `$pr_url`, `$subagent_count`,
+`$token_rate`, `$active_time`, `$hostname`, `$usage_quota`, `$collaboration`,
+`$stream_state`, `$vim_mode`, `$plan_mode`, `$prewalk_mode`, `$goal_mode`,
+`$vibe_mode`, and `$loop_mode`. These explicit built-ins also work in Opencode
+metadata and Minimalist slots; they are not aliases for OMP's segment IDs or
+third-party `$extensions`. Pi and unsupported/inactive capabilities render empty.
+See the [data/source reference](./configuration.md#omp-template-data).
+
+For example:
+
+```json
+{
+  "format": "$cwd( · PR #$pr_number)( · $plan_mode)( · $loop_mode)$fill$context( · $active_time)( · $token_rate)",
+  "compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($active_time)$wrap($token_rate)"
+}
+```
+
+Keep `$session_id` separate from the session name and `$active_time` separate
+from wall-clock `$session_duration`. Optional groups hide unavailable fields,
+including missing PR/rate/quotas, without leaving their labels behind.
+`$pr_url` is safe plain HTTPS text, not an injected terminal hyperlink.
+
+Referencing `$usage_quota` explicitly opts into OMP's public usage-report API,
+which may refresh authenticated reports from configured providers. Snapshots
+are demand-driven and cached for up to five minutes, subject to window resets
+and current provider/model/account scope. Defaults make no new requests; this
+does not enable or configure the independent `$codex_quota` consent toggle.
 
 ### `$codex_quota` consent and freshness
 

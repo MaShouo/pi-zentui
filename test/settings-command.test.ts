@@ -7,6 +7,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { renderAccentRailEditorFrame } from "../extensions/zentui/accent-rail-editor";
 import {
 	defaultConfig,
 	type EditorComponentConfig,
@@ -361,6 +362,70 @@ function createHarness(
 
 afterEach(() => {
 	vi.useRealTimers();
+});
+
+describe("focused OMP skin settings", () => {
+	it("defaults to Editor and cycles only the three supported owners", async () => {
+		const h = createHarness(cloneConfig(), { skinOnly: true });
+		await h.command().handler("", h.ctx);
+		const component = h.component();
+		expect(component.render(160)[1]).toContain("[Editor] / User messages / Statusline");
+		component.handleInput("\t");
+		expect(component.render(160)[1]).toContain("Editor / [User messages] / Statusline");
+		component.handleInput("\t");
+		expect(component.render(160)[1]).toContain("Editor / User messages / [Statusline]");
+		component.handleInput("\t");
+		expect(component.render(160)[1]).toContain("[Editor] / User messages / Statusline");
+		component.handleInput("\x1b[Z");
+		expect(component.render(160)[1]).toContain("Editor / User messages / [Statusline]");
+	});
+
+	it("rejects unsupported pages and migration without changing saved owners", async () => {
+		const h = createHarness(cloneConfig(), { skinOnly: true });
+		const before = structuredClone(h.config);
+		for (const route of [
+			"appearance",
+			"thinking",
+			"thinking-steps",
+			"working-line",
+			"extensions",
+			"migrate",
+		]) {
+			await h.command().handler(route, h.ctx);
+			expect(h.notifications.at(-1)).toContain("host-owned");
+		}
+		expect(h.config).toEqual(before);
+		expect(h.calls.thinkingSteps).toEqual([]);
+		expect(h.calls.workingLine).toEqual([]);
+		expect(h.calls.selectors).toEqual([]);
+		const completions = h
+			.command()
+			.getArgumentCompletions("")
+			?.map(({ value }) => value);
+		for (const route of ["appearance", "thinking", "working-line", "extensions", "migrate"]) {
+			expect(completions).not.toContain(route);
+		}
+		expect(completions).toContain("statusline");
+	});
+
+	it("retains supported shared presets without saving unsupported owners", async () => {
+		const h = createHarness(cloneConfig(), { skinOnly: true });
+		const unsupported = structuredClone({
+			working: h.config.components.workingLine,
+			thinking: h.config.components.thinkingSteps,
+			selectors: h.config.components.selectorBorders,
+		});
+		await h.command().handler("preset rail", h.ctx);
+		expect(h.calls.presets).toEqual(["rail"]);
+		expect(h.config.components.editor.style).toBe("accent-rail");
+		expect(h.config.components.userMessages.style).toBe("compact");
+		expect(h.config.components.footer.style).toBe("starship");
+		expect({
+			working: h.config.components.workingLine,
+			thinking: h.config.components.thinkingSteps,
+			selectors: h.config.components.selectorBorders,
+		}).toEqual(unsupported);
+	});
 });
 
 describe("component-oriented /zentui settings", () => {
@@ -750,26 +815,36 @@ describe("component-oriented /zentui settings", () => {
 		expect(component.render(100).join("\n")).not.toContain("Completion menu");
 	});
 
-	it("shows and persists the Accent Rail surface control only for that style", async () => {
+	it("changes the rail background in OMP settings without changing another component or style", async () => {
 		const current = cloneConfig();
 		current.components.editor.style = "accent-rail";
-		const harness = createHarness(current);
-		await harness.command().handler("", harness.ctx);
+		const before = structuredClone(current);
+		const harness = createHarness(current, { skinOnly: true });
+		await harness.command().handler("editor", harness.ctx);
 		const component = harness.component();
-		goToSection(component, "Editor");
-		selectLabel(component, "Accent Rail surface");
-		expect(focusedRow(component)).toContain("filled");
+		const surfaceTheme = theme();
+		surfaceTheme.getBgAnsi = () => "\x1b[48;5;234m";
+		const render = () =>
+			renderAccentRailEditorFrame({
+				width: 30,
+				editorLines: ["draft"],
+				uiTheme: surfaceTheme,
+				config: current,
+			});
+		expect(render()[0]).toContain("\x1b[48;5;234m");
+		selectLabel(component, "Editor background");
 		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("transparent");
-		expect(harness.calls.accentRail).toEqual([{ transparent: true }]);
-		expect(harness.calls.editor).toEqual([]);
+		expect(render()[0]).not.toContain("\x1b[48;5;234m");
+		expect(current.components.editor.styles["accent-rail"].transparent).toBe(true);
+		expect(current.components.editor.style).toBe("accent-rail");
+		expect(current.components.footer).toEqual(before.components.footer);
+		expect(current.components.userMessages).toEqual(before.components.userMessages);
 		expect(current.components.editor.styles.minimalist).toEqual(
-			defaultConfig.components.editor.styles.minimalist,
+			before.components.editor.styles.minimalist,
 		);
-
-		selectLabel(component, "Editor style");
 		component.handleInput(" ");
-		expect(component.render(80).join("\n")).not.toContain("Accent Rail surface");
+		expect(render()[0]).toContain("\x1b[48;5;234m");
+		expect(current.components.editor.styles["accent-rail"].transparent).toBe(false);
 	});
 
 	it("shows friendly message style labels and restores focus after rebuild", async () => {

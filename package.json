@@ -1,7 +1,7 @@
 {
 	"name": "pi-sakura-cyberdeck",
-	"version": "3.0.0",
-	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.28.0.",
+	"version": "3.1.0",
+	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.29.0, with a focused Oh My Pi skin.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
@@ -12,6 +12,7 @@
 		"pi-package",
 		"pi-extension",
 		"pi-theme",
+		"omp-plugin",
 		"starship",
 		"sakura",
 		"tui"
@@ -24,6 +25,7 @@
 		"NOTICE",
 		"README.md",
 		"LICENSE",
+		"omp.ts",
 		"docs/configuration.md",
 		"docs/footer-format.md"
 	],
@@ -37,16 +39,46 @@
 		"test:thinking-experimental-diagnostics": "node test/thinking-experimental-loader-diagnostics.mjs",
 		"pi:dev": "${PI_BIN:-/opt/homebrew/bin/pi} --no-extensions -e ./",
 		"pi:install-local": "${PI_BIN:-/opt/homebrew/bin/pi} install ./ -l",
+		"omp:dev": "${OMP_BIN:-omp} --no-extensions -e ./omp.ts",
+		"omp:install-local": "${OMP_BIN:-omp} plugin link ./",
 		"fmt": "biome format --write .",
 		"fmt:check": "biome format .",
 		"verify": "npm run check && npm run lint && npm run typecheck && npm run test",
-		"pack:check": "npm pack --dry-run",
+		"pack:check": "node test/package-contents.mjs",
 		"prepublishOnly": "npm run verify && npm run pack:check"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": ">=0.85.0",
 		"@earendil-works/pi-coding-agent": ">=0.85.0",
-		"@earendil-works/pi-tui": ">=0.85.0"
+		"@earendil-works/pi-tui": ">=0.85.0",
+		"@oh-my-pi/pi-ai": ">=18.4.10",
+		"@oh-my-pi/pi-coding-agent": ">=18.4.10",
+		"@oh-my-pi/pi-tui": ">=18.4.10"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-ai": {
+			"optional": true
+		},
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		},
+		"@earendil-works/pi-tui": {
+			"optional": true
+		},
+		"@oh-my-pi/pi-ai": {
+			"optional": true
+		},
+		"@oh-my-pi/pi-coding-agent": {
+			"optional": true
+		},
+		"@oh-my-pi/pi-tui": {
+			"optional": true
+		}
+	},
+	"omp": {
+		"extensions": [
+			"./omp.ts"
+		]
 	},
 	"pi": {
 		"extensions": [
@@ -67,6 +99,9 @@
 		"@earendil-works/pi-ai": "^0.87.1",
 		"@earendil-works/pi-coding-agent": "^0.87.1",
 		"@earendil-works/pi-tui": "^0.87.1",
+		"@oh-my-pi/pi-ai": "18.4.10",
+		"@oh-my-pi/pi-coding-agent": "18.4.10",
+		"@oh-my-pi/pi-tui": "18.4.10",
 		"@types/node": "^26.6.2",
 		"typescript": "^7.0.2",
 		"vitest": "^5.0.1"

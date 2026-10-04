@@ -191,6 +191,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	vi.useRealTimers();
 	setColorMode("truecolor");
 });
@@ -258,6 +259,8 @@ test("verb is picked once per run and stays across tool rounds", async () => {
 });
 
 test("completion notice uses whole-run time, fires once, only on success, at agent_settled", async () => {
+	// Exercise the accented completion verb; ASCII-only word matching is insufficient.
+	vi.spyOn(Math, "random").mockReturnValue(0.65);
 	const h = harness();
 	await h.emit("agent_start");
 	await h.emit("turn_start");
@@ -280,7 +283,7 @@ test("completion notice uses whole-run time, fires once, only on success, at age
 	assert.ok(notice);
 	const [text, type] = notice;
 	assert.equal(type, "info");
-	assert.match(strip(text), /^✻ \w+ for 7s$/);
+	assert.match(strip(text), /^✻ \p{L}+ for 7s$/u);
 });
 
 test("no completion notice after Esc or error", async () => {

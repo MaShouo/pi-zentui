@@ -18,6 +18,7 @@ import {
 	formatElapsedDuration,
 } from "./format";
 import { isSakuraMacaronVisuals, renderSakuraFrameGradient } from "./gradient";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import {
 	type MinimalistFormatSlot,
 	minimalistExplicitCustomKeys,
@@ -66,7 +67,9 @@ export type MinimalistEditorMetadata = {
 	inputTokens?: number;
 	outputTokens?: number;
 	customVariables?: ReadonlyMap<string, string>;
+	hostTemplateValues?: HostTemplateValues;
 	thinkingLevel?: string;
+	fastMode?: string;
 	contextPercent?: number;
 	contextWindow?: number;
 	cacheHitRate?: number;
@@ -255,6 +258,8 @@ function renderTopRight(
 	if (thinking && thinking.toLowerCase() !== "off") {
 		parts.push(renderThinking(thinking));
 	}
+	const fastMode = sanitizeEditorMetadataText(metadata.fastMode ?? "");
+	if (fastMode) parts.push(safeThemeFg(uiTheme, "accent", fastMode));
 	if (metadata.contextPercent !== undefined && Number.isFinite(metadata.contextPercent)) {
 		const percent = Math.round(Math.max(0, Math.min(999, metadata.contextPercent)));
 		const tier = contextColorTier(
@@ -397,6 +402,18 @@ function renderTemplateBuiltin(
 	renderBorder: (text: string) => string,
 	renderThinking: (text: string) => string,
 ): string {
+	if (isHostTemplateVariable(name)) {
+		const text = sanitizeEditorMetadataText(metadata.hostTemplateValues?.[name] ?? "");
+		return text
+			? renderStyleForSourceOrFallback(
+					uiTheme,
+					config.components.editor.colorSource,
+					componentColor(config, "editor", "border"),
+					"border",
+					text,
+				)
+			: "";
+	}
 	const style = config.components.editor.styles.minimalist;
 	const explicitConfig: ZentuiConfig = {
 		...config,
@@ -454,6 +471,9 @@ function renderTemplateBuiltin(
 			break;
 		case "thinking":
 			isolated.thinkingLevel = metadata.thinkingLevel;
+			break;
+		case "fast_mode":
+			isolated.fastMode = metadata.fastMode;
 			break;
 		case "context":
 			isolated.contextPercent = metadata.contextPercent;

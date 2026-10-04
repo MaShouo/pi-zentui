@@ -1,6 +1,6 @@
 # Sakura Cyberdeck
 
-A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.28.0. Sakura Cyberdeck v3 requires Pi 0.85.0 or newer.
+A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.29.0. Sakura Cyberdeck v3 requires Pi 0.85.0 or newer.
 
 This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, focused gradient accents, quiet tool cards, and thinking trails.
 
@@ -97,6 +97,29 @@ Zentui detects a broad set of runtime and language modules, preserves Nerd Font 
 <h4 align="center"><code>labeled</code></h4>
 
 ![Zentui Labeled user-message style in a rounded frame with the label User.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/user-message-labeled.png)
+
+## Oh My Pi
+
+Requires OMP **18.4.10 or newer**. From this checkout:
+
+```bash
+# Try without changing installed plugins
+npm run omp:dev
+
+# Persistently link the development checkout
+npm run omp:install-local
+```
+
+OMP loads `omp.ts` through the package's `omp.extensions` manifest; Pi keeps its existing entrypoint. Configuration is separate: `~/.omp/agent/zentui.json` by default, or the active OMP profile's agent directory.
+
+The OMP entrypoint loads only the focused Zentui skin, not Sakura Header, Matrix, shimmer, transcript chrome, or the bundled Pi theme. The OMP port is deliberately a small skin: **Editor, User messages, and Statusline only**. `/zentui` has those three sections; Working, thinking, selectors, and summaries remain OMP-owned. Pi keeps the full Zentui component set. Saved choices for unsupported OMP surfaces are not rewritten.
+
+Opencode and Minimalist metadata include OMP's supported `fast`/`ultrafast` mode. Existing custom templates are unchanged; add `$fast_mode` explicitly where wanted. Statusline supports the same token independently.
+
+OMP also exposes opt-in [template data](./docs/configuration.md#omp-template-data) for session ID, PR number/URL, subagent count, token rate, active processing time, hostname, provider quota, Vim/OMP modes, and collaboration/stream state. Use the same named variables in Opencode metadata, Minimalist slots, or Starship wide/compact formats. Defaults are unchanged; `$usage_quota` explicitly opts into OMP's usage-report API, which may refresh authenticated reports.
+
+**Statusline → Starship** replaces OMP's native status content rather than adding another line. **Hidden** suppresses native main status content and shows only permitted extension statuses; **Native** restores OMP's own line. This works with Zentui Editor enabled or disabled. OMP's inert `setFooter()` API is adapted through guarded, session-scoped native renderer decoration; native settings and other sessions/previews are left alone. All built-in composer layouts are supported; unfamiliar frame/message shapes fail open. See [OMP compatibility](./docs/configuration.md#oh-my-pi-compatibility).
+
 
 ## Configure
 

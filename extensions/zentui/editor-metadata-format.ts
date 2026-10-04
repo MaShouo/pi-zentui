@@ -7,6 +7,7 @@ import { normalizeTemplateVariables } from "./custom-variable-format";
 import { sanitizeCustomVariableText } from "./custom-variables";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	renderStyleForSource,
@@ -22,12 +23,14 @@ export type EditorMetadataValues = {
 	provider: string;
 	thinking: string;
 	sessionName: string;
+	fastMode?: string;
 	contextPercent?: number;
 	contextWindow?: number;
 	inputTokens?: number;
 	outputTokens?: number;
 	cacheHitRate?: number;
 	customVariables?: ReadonlyMap<string, string>;
+	hostTemplateValues?: HostTemplateValues;
 };
 
 type RenderedTokens = {
@@ -195,6 +198,21 @@ function renderVariable(
 			? editor.styles[editor.style]
 			: editor.styles.opencode;
 	const aliases = normalizeTemplateVariables(style.variables, OPENCODE_FORMAT_VARIABLES);
+	if (isHostTemplateVariable(name)) {
+		const plain = sanitizeEditorMetadataText(values.hostTemplateValues?.[name] ?? "");
+		return {
+			plain,
+			styled: plain
+				? renderStyleForSourceOrFallback(
+						uiTheme,
+						editor.colorSource,
+						componentColor(config, "editor", "border"),
+						"border",
+						plain,
+					)
+				: "",
+		};
+	}
 	if (Object.hasOwn(aliases, name)) {
 		const raw = values.customVariables?.get(aliases[name]) ?? "";
 		const text = sanitizeCustomVariableText(raw, style.extensionColorMode ?? "original");
@@ -211,6 +229,10 @@ function renderVariable(
 	if (name === "codex_quota") {
 		const styled = renderCodexQuota(values.codexQuota, uiTheme, config, "editor");
 		return { plain: styled ? codexQuotaText(values.codexQuota) : "", styled };
+	}
+	if (name === "fast_mode") {
+		const plain = sanitizeEditorMetadataText(values.fastMode ?? "");
+		return { plain, styled: plain ? safeThemeFg(uiTheme, "accent", plain) : "" };
 	}
 	const colorSource = config.components.editor.colorSource;
 	const thinking = values.thinking.toLowerCase() === "off" ? "" : values.thinking;
