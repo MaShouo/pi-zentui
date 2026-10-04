@@ -82,6 +82,7 @@ import {
 	renderTurnSummaryEntry,
 	TURN_SUMMARY_ENTRY_TYPE,
 } from "./interaction-summary";
+import { LayeredEditorConsumer } from "./layered-editor";
 import { LiveContextController } from "./live-context";
 import { readPackageVersionResult } from "./package-version";
 import { getComponentPreset } from "./presets";
@@ -281,7 +282,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	let stopSessionTimer: () => void = () => {};
 	let stopMinimalistDurationUpdates: () => void = () => {};
 	let minimalistDurationUpdatesActive = false;
-	let minimalistDecorationActive = false;
+	let minimalistDecorationEditor: PolishedEditor | WrappedPolishedEditor | undefined;
 	let customVariableSessionReady = false;
 	let sessionTimerRequirements = "";
 	let lastDurationLabel = "";
@@ -328,14 +329,41 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		}
 	};
 
+	const layeredEditor = new LayeredEditorConsumer<
+		EditorFactory,
+		PolishedEditor | WrappedPolishedEditor
+	>((generation) => sessionLifecycle.isCurrent(generation));
+	const currentEditorFactory = (): EditorFactory | undefined => {
+		try {
+			return activeTuiContext?.ui.getEditorComponent();
+		} catch {
+			return undefined;
+		}
+	};
+	// Layered visibility is read-only recognition; installation ownership above stays exclusive.
+	// Data, demand, and timer consumers read the visible editor through these two helpers; anything
+	// that installs, restores, or mutates host UI must keep using ownsInstalledEditorFactory().
+	// Ownership counts before Pi constructs its editor; layered visibility requires the recorded
+	// instance to remain reachable through the current factory.
+	const layeredVisibleEditor = () => layeredEditor.editorVisibleThrough(currentEditorFactory());
+	const editorConsumerActive = () =>
+		ownsInstalledEditorFactory() || layeredVisibleEditor() !== undefined;
+	const visibleEditor = () =>
+		ownsInstalledEditorFactory() ? activeEditor?.editor : layeredVisibleEditor();
+	const requestEditorRepaint = () => {
+		requestEditorRender?.();
+		// The layered record intentionally outlives ownership clearing, so disabling the editor is
+		// gated here; a live wrapper keeps repainting while the editor remains enabled.
+		if (effectiveEditorEnabled()) layeredEditor.requestRender(currentEditorFactory());
+	};
+
 	const customVariables = new CustomVariables(
 		pi.events,
 		(key) => {
 			if (!customVariableSessionReady || !sessionLifecycle.isCurrent()) return false;
 			return (
 				(effectiveEditorEnabled() &&
-					ownsInstalledEditorFactory() &&
-					activeEditor?.editor.isMetadataDecorated() === true &&
+					visibleEditor()?.isMetadataDecorated() === true &&
 					editorDemandsCustomVariable(currentConfig, key)) ||
 				(installedFooterKind === "starship" &&
 					ownsInstalledFooter() &&
@@ -344,7 +372,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		},
 		() => {
 			if (!customVariableSessionReady || !sessionLifecycle.isCurrent()) return;
-			requestEditorRender?.();
+			requestEditorRepaint();
 			requestFooterRender?.();
 		},
 	);
@@ -353,7 +381,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		customVariables.reconcile();
 		codexQuota.reconcile();
 		requestFooterRender?.();
-		requestEditorRender?.();
+		requestEditorRepaint();
 	};
 	const thinkingExperimental = new ThinkingExperimentalController(
 		() => currentConfig.components.thinkingSteps,
@@ -397,7 +425,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	if (!host.skinOnly)
 		workingLine.setRequestRender(() => {
 			if (sessionLifecycle.isCurrent()) {
-				requestEditorRender?.();
+				requestEditorRepaint();
 			}
 		});
 	let workingLineSessionReady = false;
@@ -474,7 +502,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		return usageTotals.resolve(
 			ctx,
 			(effectiveEditorEnabled() &&
-				ownsInstalledEditorFactory() &&
+				editorConsumerActive() &&
 				["tokens", "input_tokens", "output_tokens", "cost", "cache_hit"].some((name) =>
 					editorMetadataReferences(currentConfig).has(name),
 				)) ||
@@ -510,9 +538,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			)
 				return undefined;
 			const editorDemand =
-				effectiveEditorEnabled() &&
-				ownsInstalledEditorFactory() &&
-				editorWantsCodexQuota(currentConfig);
+				effectiveEditorEnabled() && editorConsumerActive() && editorWantsCodexQuota(currentConfig);
 			const footerDemand =
 				effectiveFooterStyle() === "starship" &&
 				currentConfig.components.footer.codexQuota &&
@@ -522,7 +548,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		() => {
 			if (!sessionLifecycle.isCurrent()) return;
 			requestFooterRender?.();
-			requestEditorRender?.();
+			requestEditorRepaint();
 		},
 	);
 	const getEditorQuota = () =>
@@ -607,7 +633,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			currentConfig,
 			installedFooterReferences(),
 			effectiveEditorEnabled() &&
-				ownsInstalledEditorFactory() &&
+				editorConsumerActive() &&
 				currentConfig.components.editor.style === "minimalist",
 		);
 
@@ -657,6 +683,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!sessionLifecycle.isCurrent() || !ctx.hasUI) return;
 		if (activeTuiContext?.ui === ctx.ui) activeTuiContext = ctx;
 		if (editorInstalled && !ownsInstalledEditorFactory()) reconcileObservedEditorOwnership(ctx);
+		// A layered editor can stop being visible without any ownership transition to observe.
+		if (projectRefreshActive && !needsProjectRefresh()) stopProjectRefresh();
 		syncFooterState(ctx);
 		if (project && needsProjectRefresh()) scheduleProjectRefresh(ctx);
 		refresh();
@@ -708,9 +736,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			sessionLifecycle.isCurrent() &&
 			agentRunActive &&
 			agentDurationClock.isActive() &&
-			minimalistDecorationActive &&
+			minimalistDecorationActive() &&
 			effectiveEditorEnabled() &&
-			ownsInstalledEditorFactory() &&
 			currentConfig.components.editor.style === "minimalist" &&
 			editorMetadataReferences(currentConfig).has("turn_duration");
 		if (!needed) {
@@ -731,12 +758,24 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		});
 	};
 
-	const setMinimalistDecorationActive = (active: boolean) => {
-		const next = sessionLifecycle.isCurrent() && active && ownsInstalledEditorFactory();
-		if (minimalistDecorationActive === next) return;
-		minimalistDecorationActive = next;
+	// Decoration is bound to the editor instance that reported it, so it stays valid while that
+	// editor is visible (owned or layered) and cannot leak to a replacement editor.
+	const minimalistDecorationActive = () =>
+		sessionLifecycle.isCurrent() &&
+		minimalistDecorationEditor !== undefined &&
+		visibleEditor() === minimalistDecorationEditor;
+	const reconcileMinimalistDecoration = () => {
 		customVariables.reconcile();
 		reconcileAgentTimer();
+	};
+	const setMinimalistDecorationActive = (
+		active: boolean,
+		editor?: PolishedEditor | WrappedPolishedEditor,
+	) => {
+		const next = active ? editor : undefined;
+		if (minimalistDecorationEditor === next) return;
+		minimalistDecorationEditor = next;
+		reconcileMinimalistDecoration();
 	};
 
 	const startAgentTurn = (interactionStarted: boolean) => {
@@ -900,12 +939,12 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (activeTuiContext && workingLineSessionReady) {
 			if (!host.skinOnly) workingLine.reconcile(activeTuiContext);
 		}
-		setMinimalistDecorationActive(false);
 		requestEditorRender = undefined;
 		wrappedEditorFactory = undefined;
 		installedEditorFactory = undefined;
 		editorInstallMode = "none";
 		editorInstalled = false;
+		reconcileMinimalistDecoration();
 		codexQuota.reconcile();
 	};
 
@@ -948,8 +987,12 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		return observed;
 	};
 
+	// Exclusive: gates mutation of host UI such as the Working row.
 	const isActiveEditor = (editor: PolishedEditor | WrappedPolishedEditor, generation: number) =>
 		sessionLifecycle.isCurrent(generation) && activeEditor?.editor === editor;
+	// Read-only: also true for an editor still visible beneath a foreign wrapper.
+	const isVisibleEditor = (editor: PolishedEditor | WrappedPolishedEditor, generation: number) =>
+		sessionLifecycle.isCurrent(generation) && visibleEditor() === editor;
 
 	const editorBorderCapabilityChanged = (
 		editor: PolishedEditor | WrappedPolishedEditor,
@@ -958,14 +1001,14 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!isActiveEditor(editor, generation) || !activeTuiContext || !workingLineSessionReady)
 			return;
 		if (!host.skinOnly) workingLine.reconcile(activeTuiContext);
-		if (workingLine.isAvailable()) requestEditorRender?.();
+		if (workingLine.isAvailable()) requestEditorRepaint();
 	};
 
 	const editorMetadataDecorationChanged = (
 		editor: PolishedEditor | WrappedPolishedEditor,
 		generation: number,
 	) => {
-		if (isActiveEditor(editor, generation)) customVariables.reconcile();
+		if (isVisibleEditor(editor, generation)) customVariables.reconcile();
 	};
 
 	const editorWorkingLineFrame = (
@@ -975,6 +1018,31 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		!host.skinOnly && isActiveEditor(editor, generation)
 			? workingLine.currentWorkingLineFrame()
 			: undefined;
+
+	/** Records a freshly constructed editor as owned (exclusive) or visible beneath a foreign wrapper. */
+	const registerConstructedEditor = (
+		ctx: ExtensionContext,
+		factory: ZentuiEditorFactory,
+		generation: number,
+		editor: PolishedEditor | WrappedPolishedEditor,
+		tui: TUI,
+	) => {
+		const observed = observeEditorFactory(ctx);
+		if (
+			!sessionLifecycle.isCurrent(generation) ||
+			activeTuiContext?.ui !== ctx.ui ||
+			!observed.known
+		) {
+			return;
+		}
+		if (observed.factory === factory) {
+			activeEditor = { editor, factory, generation };
+			requestEditorRender = () => tui.requestRender();
+		} else if (observed.factory && !isZentuiEditorFactory(observed.factory)) {
+			// A foreign wrapper built this editor beneath its own outer factory.
+			layeredEditor.attach(observed.factory, generation, editor, () => tui.requestRender());
+		}
+	};
 
 	const makeEditorFactory = (
 		ctx: ExtensionContext,
@@ -1025,21 +1093,12 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 					};
 				},
 				(active) => {
-					if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
+					if (isVisibleEditor(editor, generation)) setMinimalistDecorationActive(active, editor);
 				},
 				() => editorBorderCapabilityChanged(editor, generation),
 				() => editorMetadataDecorationChanged(editor, generation),
 			);
-			const observed = observeEditorFactory(ctx);
-			if (
-				sessionLifecycle.isCurrent(generation) &&
-				activeTuiContext?.ui === ctx.ui &&
-				observed.known &&
-				observed.factory === factory
-			) {
-				activeEditor = { editor, factory, generation };
-				requestEditorRender = () => tui.requestRender();
-			}
+			registerConstructedEditor(ctx, factory, generation, editor, tui);
 			return editor;
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
@@ -1096,21 +1155,12 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 					};
 				},
 				(active) => {
-					if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
+					if (isVisibleEditor(editor, generation)) setMinimalistDecorationActive(active, editor);
 				},
 				() => editorBorderCapabilityChanged(editor, generation),
 				() => editorMetadataDecorationChanged(editor, generation),
 			);
-			const observed = observeEditorFactory(ctx);
-			if (
-				sessionLifecycle.isCurrent(generation) &&
-				activeTuiContext?.ui === ctx.ui &&
-				observed.known &&
-				observed.factory === factory
-			) {
-				activeEditor = { editor, factory, generation };
-				requestEditorRender = () => tui.requestRender();
-			}
+			registerConstructedEditor(ctx, factory, generation, editor, tui);
 			return editor;
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
@@ -1465,6 +1515,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!ctx || !sessionLifecycle.isCurrent()) return;
 		sessionLifecycle.shutdown();
 		activeEditor = undefined;
+		minimalistDecorationEditor = undefined;
+		layeredEditor.detach();
 		extensionStatuses.dispose();
 		codexQuota.stop();
 		stopSessionTimer();
@@ -1525,6 +1577,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		customVariables.clear();
 		const lifecycleGeneration = sessionLifecycle.start();
 		activeEditor = undefined;
+		minimalistDecorationEditor = undefined;
 		// A new generation must not expose or route extension segments through the previous
 		// session while TUI startup is in progress.
 		workingLineSessionReady = false;
