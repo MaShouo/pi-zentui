@@ -55,7 +55,7 @@ function isNativeMarkdown(renderer: unknown): boolean {
 
 const sanitizedMarkdownCache = new WeakMap<
 	object,
-	{ lines: unknown; text: string; options: unknown }
+	{ lines: unknown; sourceText: string; text: string; options: unknown }
 >();
 
 // Framing eligibility is deliberately narrower than the source trust boundary.
@@ -75,7 +75,14 @@ function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: bo
 			if (!isRecord(options.value)) return;
 			const transform = options.value.transform;
 			if (transform !== undefined && typeof transform !== "function") return;
-			const source = sanitizeUserMessageSourceText(text.value);
+			const cached = sanitizedMarkdownCache.get(value);
+			// Source sanitization depends only on the immutable raw string, not on
+			// width, theme, options or native output invalidation. Reuse just that
+			// result; the guarded native render and its cache checks still run.
+			const source =
+				cached && cached.sourceText === text.value
+					? cached.text
+					: sanitizeUserMessageSourceText(text.value);
 			const safeOptions = {
 				...options.value,
 				...(transform
@@ -87,7 +94,6 @@ function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: bo
 						}
 					: {}),
 			};
-			const cached = sanitizedMarkdownCache.get(value);
 			restore.push(() => {
 				Object.defineProperty(value, "text", text);
 				Object.defineProperty(value, "options", options);
@@ -96,6 +102,7 @@ function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: bo
 				// them normally, and cleanup needs no retained component references.
 				sanitizedMarkdownCache.set(value, {
 					lines: value.cachedText === source ? value.cachedLines : undefined,
+					sourceText: text.value,
 					text: source,
 					options: options.value,
 				});
