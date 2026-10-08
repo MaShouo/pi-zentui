@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { componentColor } from "../extensions/zentui/component-colors";
 import {
 	type ComponentSettingsDeps,
 	confirmComponentMigration,
 	editComponentColors,
+	editTurnSummaryFormat,
 } from "../extensions/zentui/component-settings";
 import {
 	mergeConfig,
@@ -121,6 +123,56 @@ describe("confirmed component migration dialogs", () => {
 });
 
 describe("component color override dialogs", () => {
+	it("exposes cacheHit for Editor and saves/resets only its sparse override", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-cache-hit-dialog-"));
+		const path = join(dir, "zentui.json");
+		const original = {
+			colors: { cacheHit: "green", contextNormal: "blue" },
+			components: {
+				editor: { colors: { contextNormal: "cyan", future: true } },
+				footer: { colors: { contextNormal: "red" }, future: true },
+				userMessages: { enabled: false },
+				selectorBorders: { colorSource: "terminal" },
+				workingLine: { enabled: false },
+			},
+		};
+		try {
+			writeFileSync(path, JSON.stringify(original));
+			const h = harness();
+			h.deps.getConfig = () => mergeConfig(JSON.parse(readFileSync(path, "utf8")));
+			h.deps.setComponentColor = (owner, key, value) => {
+				saveComponentColor(owner, key, value, path);
+			};
+			h.ui.select.mockResolvedValueOnce("cacheHit").mockResolvedValueOnce("Edit override");
+			h.ui.editor.mockResolvedValueOnce("fg:202");
+			await editComponentColors(h.ctx, h.deps, "editor");
+			expect(h.ui.select).toHaveBeenCalledWith(
+				"editor color overrides",
+				expect.arrayContaining(["cacheHit"]),
+			);
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.components.editor.colors).toEqual({
+				contextNormal: "cyan",
+				cacheHit: "fg:202",
+				future: true,
+			});
+			expect(componentColor(h.deps.getConfig(), "editor", "cacheHit")).toBe("fg:202");
+			h.ui.select.mockResolvedValueOnce("cacheHit").mockResolvedValueOnce("Reset / inherit");
+			await editComponentColors(h.ctx, h.deps, "editor");
+			const reset = JSON.parse(readFileSync(path, "utf8"));
+			expect(reset.components.editor.colors).toEqual(original.components.editor.colors);
+			expect(reset.colors).toEqual(original.colors);
+			for (const owner of ["footer", "userMessages", "selectorBorders", "workingLine"] as const)
+				expect(reset.components[owner]).toEqual(original.components[owner]);
+			expect(componentColor(h.deps.getConfig(), "editor", "cacheHit")).toBe("green");
+			delete reset.colors.cacheHit;
+			writeFileSync(path, JSON.stringify(reset));
+			expect(componentColor(h.deps.getConfig(), "editor", "cacheHit")).toBeUndefined();
+			expect(componentColor(h.deps.getConfig(), "editor", "contextNormal")).toBe("cyan");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 	it.each(["", "   ", "fg:202", "bold purple"])(
 		"saves supported explicit value %j, not inherited defaults",
 		async (value) => {
@@ -256,4 +308,57 @@ describe("color dialog errors and draft transfer", () => {
 		expect(h.ui.notify).not.toHaveBeenCalled();
 		expect(h.ui.select).toHaveBeenCalledTimes(2);
 	});
+});
+
+describe("turn summary format dialogs", () => {
+	it.each(["Edit", "Reset"])(
+		"%s touches only the summary format and preserves expanded draft",
+		async (action) => {
+			const h = harness();
+			const setWorkingLineComponent = vi.fn();
+			h.ui.select.mockResolvedValueOnce(action);
+			h.ui.editor.mockResolvedValueOnce("$output_tokens$join_sep$token_rate");
+			await editTurnSummaryFormat(h.ctx, { ...h.deps, setWorkingLineComponent });
+			expect(setWorkingLineComponent).toHaveBeenCalledExactlyOnceWith(
+				{ turnSummaryFormat: action === "Edit" ? "$output_tokens$join_sep$token_rate" : "" },
+				h.ctx,
+			);
+			expect(h.draft()).toBe("expanded\nlong paste");
+			expect(h.ui.notify).toHaveBeenCalledWith(expect.stringContaining("new summaries"), "info");
+		},
+	);
+	it.each(["cancel-select", "cancel-editor", "stale", "restarted"])(
+		"does not save on %s",
+		async (mode) => {
+			const h = harness();
+			const setWorkingLineComponent = vi.fn();
+			h.ui.select.mockResolvedValueOnce(mode === "cancel-select" ? undefined : "Edit");
+			h.ui.editor.mockImplementationOnce(async () => {
+				if (mode === "stale" || mode === "restarted") {
+					h.deps.sessionLifecycle.shutdown();
+					if (mode === "restarted") h.deps.sessionLifecycle.start();
+				}
+				return mode === "cancel-editor" ? undefined : "new";
+			});
+			await editTurnSummaryFormat(h.ctx, { ...h.deps, setWorkingLineComponent });
+			expect(setWorkingLineComponent).not.toHaveBeenCalled();
+			expect(h.ui.notify).not.toHaveBeenCalled();
+		},
+	);
+});
+
+it("marks Working turnSummary color edits as new-summary-only", async () => {
+	const h = harness();
+	h.ui.select.mockResolvedValueOnce("turnSummary").mockResolvedValueOnce("Reset / inherit");
+	await editComponentColors(h.ctx, h.deps, "workingLine");
+	expect(h.ui.select).toHaveBeenCalledWith(expect.stringContaining("new summaries only"), [
+		"Edit override",
+		"Reset / inherit",
+	]);
+	expect(h.deps.setComponentColor).toHaveBeenCalledWith(
+		"workingLine",
+		"turnSummary",
+		undefined,
+		h.ctx,
+	);
 });

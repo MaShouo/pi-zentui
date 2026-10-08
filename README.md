@@ -1,6 +1,6 @@
 # Sakura Cyberdeck
 
-A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.29.0. Sakura Cyberdeck v3 requires Pi 0.85.0 or newer.
+A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.30.0. Sakura Cyberdeck v3 requires Pi 0.85.0 or newer.
 
 This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, focused gradient accents, quiet tool cards, and thinking trails.
 

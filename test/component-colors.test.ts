@@ -127,6 +127,7 @@ function editor(config: ZentuiConfig) {
 				modelLabel: "Model",
 				thinkingLevel: "max",
 				contextPercent: 80,
+				cacheHitRate: 98.16,
 			},
 		}),
 		...renderAccentRailEditorFrame({ width: 100, editorLines: ["draft"], uiTheme: theme, config }),
@@ -143,6 +144,7 @@ const renderers = {
 };
 
 function legacyKey(owner: ColorOwner, key: string) {
+	if (owner === "workingLine" && key === "turnSummary") return "workingLineHigh";
 	if (
 		owner === "footer" ||
 		(owner === "editor" &&
@@ -153,6 +155,7 @@ function legacyKey(owner: ColorOwner, key: string) {
 				"contextNormal",
 				"contextWarning",
 				"contextError",
+				"cacheHit",
 				"cost",
 				"sessionDuration",
 			].includes(key))
@@ -175,7 +178,9 @@ describe("typed component color inheritance", () => {
 				expect(config.components[owner].colors).toEqual({ [key]: "" });
 				delete (config.components[owner].colors as Record<string, string>)[key];
 				expect(componentColor(config, owner, key)).toBe(
-					owner === "selectorBorders" ? undefined : "red",
+					owner === "selectorBorders" || ["prNumber", "prUrl", "ci", "tokenRate"].includes(key)
+						? undefined
+						: "red",
 				);
 				expect(
 					componentColor(
@@ -186,7 +191,11 @@ describe("typed component color inheritance", () => {
 						owner,
 						key,
 					),
-				).toBe(owner === "selectorBorders" ? undefined : "green");
+				).toBe(
+					owner === "selectorBorders" || ["prNumber", "prUrl", "ci", "tokenRate"].includes(key)
+						? undefined
+						: "green",
+				);
 			}
 		},
 	);
@@ -336,6 +345,21 @@ describe("typed component color inheritance", () => {
 				}
 			},
 		);
+	});
+	it.each(["theme", "terminal"] as const)("keeps cacheHit editor-only with %s colors", (source) => {
+		const before = base(source);
+		before.components.editor.styles.minimalist.showCacheHit = true;
+		const after = base(source);
+		after.components.editor.styles.minimalist.showCacheHit = true;
+		after.components.editor.colors = { cacheHit: "red" };
+		for (const owner of Object.keys(componentColorKeys) as ColorOwner[]) {
+			if (owner === "editor") expect(renderers[owner](after)).not.toEqual(renderers[owner](before));
+			else {
+				expect(componentColorKeys[owner]).not.toContain("cacheHit");
+				expect(renderers[owner](after)).toEqual(renderers[owner](before));
+			}
+		}
+		expect(after.colors).toEqual(before.colors);
 	});
 	it("keeps configured accent out of model and rail constant fallbacks", () => {
 		const config = base();

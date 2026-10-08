@@ -67,7 +67,7 @@ describe("Minimalist template configuration", () => {
 		expect(Object.keys(normalized)).toHaveLength(16);
 		expect(normalized.valid).toHaveLength(64);
 		for (const name of MINIMALIST_BUILTIN_VARIABLES)
-			expect(Object.hasOwn(normalized, name)).toBe(false);
+			expect(Object.hasOwn(normalized, name)).toBe(name === "ci");
 		expect(normalized.empty).toBeUndefined();
 		expect(normalized.long).toBeUndefined();
 		expect(normalized.spaces).toBeUndefined();
@@ -106,7 +106,7 @@ describe("Minimalist template configuration", () => {
 			saveMinimalistEditorStylePatch(
 				{
 					formats: { topRight: "", bottomMiddle: "$build" },
-					variables: { build: "pkg.build" },
+					variables: { build: "pkg.build", join_sep: "pkg.reserved" },
 					extensionColorMode: "zentui",
 				},
 				path,

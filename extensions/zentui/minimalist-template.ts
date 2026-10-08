@@ -45,6 +45,7 @@ export const MINIMALIST_BUILTIN_VARIABLES = [
 	"fill",
 	"wrap",
 	"wrap_sep",
+	"join_sep",
 	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 const reserved = new Set<string>(MINIMALIST_BUILTIN_VARIABLES);
@@ -52,7 +53,7 @@ const reserved = new Set<string>(MINIMALIST_BUILTIN_VARIABLES);
 export function isMinimalistVariableAlias(name: string): boolean {
 	return (
 		/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) &&
-		!reserved.has(name) &&
+		(!reserved.has(name) || name === "ci") &&
 		name !== "__proto__" &&
 		name !== "constructor" &&
 		name !== "prototype"
@@ -120,7 +121,7 @@ export function minimalistTemplateReferences(
 	const visit = (tokens: readonly ReadonlyFormatToken[]) => {
 		for (const token of tokens) {
 			if (token.kind === "group") visit(token.tokens);
-			else if (token.kind === "var") names.add(token.name);
+			else if (token.kind === "var" && token.name !== "join_sep") names.add(token.name);
 		}
 	};
 	for (const format of Object.values(effectiveMinimalistFormats(style)))

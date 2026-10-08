@@ -36,6 +36,7 @@ import {
 	saveAccentRailEditorStylePatch,
 	saveComponentColor,
 	saveComponentPreset,
+	saveCustomValueColor,
 	saveEditorComponentPatch,
 	saveExtensionStatusChoice,
 	saveExtensionStatusColorMode,
@@ -76,14 +77,17 @@ import {
 } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
 import { isSakuraMacaronVisuals } from "./gradient";
-import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
+import type { HostTemplateValues } from "./host-template-values";
 import {
+	createTurnSummaryData,
 	InteractionMetricsTracker,
 	renderTurnSummaryEntry,
 	TURN_SUMMARY_ENTRY_TYPE,
 } from "./interaction-summary";
 import { LayeredEditorConsumer } from "./layered-editor";
 import { LiveContextController } from "./live-context";
+import { LiveMetadataController } from "./live-metadata";
+import { editorHostReferences, liveMetadataDemand } from "./live-metadata-demand";
 import { readPackageVersionResult } from "./package-version";
 import { getComponentPreset } from "./presets";
 import { projectDemand } from "./project-demand";
@@ -114,13 +118,10 @@ import { FooterTelemetryController } from "./telemetry";
 import { ThinkingExperimentalController } from "./thinking-experimental";
 import { installThinkingMessageStyle } from "./thinking-message";
 import { installToolExecutionStyle } from "./tool-execution";
+import { TurnSummaryRateTracker } from "./turn-summary-rate";
 import { editorWantsContext, PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
-import {
-	AgentDurationClock,
-	snapshotWorkingLineHighStyle,
-	WorkingLineController,
-} from "./working-line";
+import { AgentDurationClock, WorkingLineController } from "./working-line";
 import { WorkingLineExtensionSegments } from "./working-line-extension-segments";
 
 const ZENTUI_EDITOR_FACTORY = Symbol.for("pi-zentui.editor-factory");
@@ -214,6 +215,7 @@ export type ZentuiHost = {
 	wrapEditor?: boolean;
 	skinOnly?: boolean;
 	liveModel?: boolean;
+	subscribeProjectChanges?: (invalidate: () => void) => () => void;
 	getFastMode?: (ctx: ExtensionContext) => string | undefined;
 	getHostTemplateValues?: (
 		ctx: ExtensionContext,
@@ -289,6 +291,11 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	let lastProjectCwd: string | undefined;
 	const agentDurationClock = new AgentDurationClock();
 	const interactionMetrics = new InteractionMetricsTracker();
+	const summaryRate = new TurnSummaryRateTracker();
+	const summaryEnabled = () =>
+		!host.skinOnly &&
+		currentConfig.components.workingLine.enabled &&
+		currentConfig.components.workingLine.turnSummary;
 	let agentRunActive = false;
 	let minimalistProjectRoot: string | undefined;
 	const repositoryRoots = new RepositoryRootController();
@@ -379,7 +386,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	const refresh = () => {
 		if (!sessionLifecycle.isCurrent()) return;
 		customVariables.reconcile();
+		summaryRate.reconcile(summaryEnabled());
 		codexQuota.reconcile();
+		reconcileLiveMetadata();
 		requestFooterRender?.();
 		requestEditorRepaint();
 	};
@@ -444,7 +453,10 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			return false;
 		},
 	);
-	invalidateWorkingLinePublisherState = () => workingLineExtensions.invalidate();
+	invalidateWorkingLinePublisherState = () => {
+		workingLineExtensions.invalidate();
+		reconcileLiveMetadata();
+	};
 	const getEditorContextMetadata = (ctx: ExtensionContext) => {
 		const context = editorWantsContext(currentConfig)
 			? resolveContextUsage(ctx, liveContext.get())
@@ -452,11 +464,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		return { contextPercent: context?.percent, contextWindow: context?.contextWindow };
 	};
 	const getEditorHostTemplateValues = (ctx: ExtensionContext) => {
-		if (!host.getHostTemplateValues) return undefined;
-		const names = editorMetadataReferences(currentConfig);
-		for (const name of names)
-			if (isHostTemplateVariable(name)) return host.getHostTemplateValues(ctx, names);
-		return undefined;
+		const names = editorHostReferences(currentConfig);
+		return liveMetadata.read(names, host.getHostTemplateValues?.(ctx, names));
 	};
 	const getEditorMeta = (ctx: ExtensionContext) => {
 		if (host.liveModel) syncModelState(state, ctx.model);
@@ -522,6 +531,57 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		installedFooterKind === "starship" && ownsInstalledFooter()
 			? activeFooterReferences(currentConfig)
 			: new Set<string>();
+
+	const createLiveMetadata = () =>
+		new LiveMetadataController(
+			async (command, args, options) => {
+				if (!activeTuiContext || !isProjectTrusted(activeTuiContext)) {
+					throw new Error("Project is not trusted");
+				}
+				return pi.exec(command, args, options);
+			},
+			(text) => {
+				if (!host.skinOnly && activeTuiContext && sessionLifecycle.isCurrent())
+					workingLine.updateTokenRate(text, activeTuiContext);
+			},
+			() => {
+				if (sessionLifecycle.isCurrent()) {
+					requestEditorRepaint();
+					requestFooterRender?.();
+				}
+			},
+			() => reconcileLiveMetadata(),
+		);
+	let liveMetadata = createLiveMetadata();
+	let unsubscribeHostProjectChanges = () => {};
+	const reconcileLiveMetadata = () => {
+		const ctx = activeTuiContext;
+		const current = ctx && sessionLifecycle.isCurrent() && isTuiContext(ctx);
+		const demand = liveMetadataDemand(
+			currentConfig,
+			{
+				editor: Boolean(
+					current &&
+						effectiveEditorEnabled() &&
+						editorConsumerActive() &&
+						visibleEditor()?.isMetadataDecorated() === true,
+				),
+				footer: Boolean(current && installedFooterKind === "starship" && ownsInstalledFooter()),
+				workingLine: Boolean(
+					current && !host.skinOnly && workingLineSessionReady && workingLine.isAvailable(),
+				),
+			},
+			!host.skinOnly,
+		);
+		liveMetadata.reconcile(
+			current
+				? { cwd: ctx.cwd, scopeKey: String(sessionLifecycle.currentGeneration()) }
+				: undefined,
+			{ ...demand, github: demand.github && Boolean(current && isProjectTrusted(ctx)) },
+		);
+	};
+	const suspendTokenRate = () => liveMetadata.suspendRate();
+	const clearTokenRate = () => liveMetadata.suspendRate(true);
 
 	const codexQuota = new CodexQuotaCollector(
 		() => {
@@ -605,7 +665,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			runtime,
 			packageVersion,
 		});
-		return previous !== projectStateSnapshot(state, lastProjectCwd, minimalistProjectRoot);
+		const changed = previous !== projectStateSnapshot(state, lastProjectCwd, minimalistProjectRoot);
+		if (changed) liveMetadata.invalidateProject();
+		return changed;
 	};
 
 	const projectRefreshScheduler = createProjectRefreshScheduler(refreshProjectState, refresh);
@@ -762,6 +824,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		visibleEditor() === minimalistDecorationEditor;
 	const reconcileMinimalistDecoration = () => {
 		customVariables.reconcile();
+		reconcileLiveMetadata();
 		reconcileAgentTimer();
 	};
 	const setMinimalistDecorationActive = (
@@ -1001,7 +1064,10 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		editor: PolishedEditor | WrappedPolishedEditor,
 		generation: number,
 	) => {
-		if (isVisibleEditor(editor, generation)) customVariables.reconcile();
+		if (isVisibleEditor(editor, generation)) {
+			customVariables.reconcile();
+			reconcileLiveMetadata();
+		}
 	};
 
 	const editorWorkingLineFrame = (
@@ -1255,6 +1321,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		stopSessionTimer();
 		customVariables.reconcile();
 		codexQuota.reconcile();
+		reconcileLiveMetadata();
 		if (sessionLifecycle.isCurrent()) reconcileProjectRefresh(ctx, true);
 	};
 
@@ -1297,6 +1364,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	const installStatusLine = (ctx: ExtensionContext) => {
 		if (installedFooterKind === "starship" && ownsStatusLine(ctx)) return;
 		const token = Symbol("zentui-starship-footer");
+		const generation = sessionLifecycle.currentGeneration();
 		const previous = snapshotFooterBookkeeping(ctx);
 		try {
 			installFooter(ctx, state, getCurrentConfig, {
@@ -1304,13 +1372,18 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 					requestFooterRender = fn;
 				},
 				scheduleProjectRefresh,
+				onProjectChanged: () => {
+					if (sessionLifecycle.isCurrent(generation) && ownsStatusLine(ctx))
+						liveMetadata.invalidateProject();
+				},
 				setExtensionStatusesGetter(fn) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
 				getThinkingLevel,
 				beforeRender: host.liveModel ? () => syncModelState(state, ctx.model) : undefined,
 				getFastMode: () => host.getFastMode?.(ctx),
-				getHostTemplateValues: (names) => host.getHostTemplateValues?.(ctx, names),
+				getHostTemplateValues: (names) =>
+					liveMetadata.read(names, host.getHostTemplateValues?.(ctx, names)),
 				getLiveContext: () => liveContext.get(),
 				getCodexQuota: () => codexQuota.get(),
 				getCustomVariables: () => customVariables.snapshot(),
@@ -1565,12 +1638,20 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
+		unsubscribeHostProjectChanges();
+		liveMetadata.dispose();
+		liveMetadata = createLiveMetadata();
 		codexQuota.stop();
 		usageTotals.invalidate();
 		footerTelemetry.reset();
 		customVariableSessionReady = false;
 		customVariables.clear();
 		const lifecycleGeneration = sessionLifecycle.start();
+		unsubscribeHostProjectChanges = isTuiContext(ctx)
+			? (host.subscribeProjectChanges?.(() => {
+					if (sessionLifecycle.isCurrent(lifecycleGeneration)) liveMetadata.invalidateProject();
+				}) ?? (() => {}))
+			: () => {};
 		activeEditor = undefined;
 		minimalistDecorationEditor = undefined;
 		// A new generation must not expose or route extension segments through the previous
@@ -1591,6 +1672,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();
+		summaryRate.reset();
 		if (!host.skinOnly) workingLineExtensions.invalidate();
 		state.sessionStartEpoch = Date.now();
 		resetAgentTimer();
@@ -1601,6 +1683,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		customVariableSessionReady = isTuiContext(ctx);
 		if (!host.skinOnly) workingLine.startSession(ctx);
 		workingLineSessionReady = !host.skinOnly;
+		reconcileLiveMetadata();
 		scheduleEditorReconciliation(ctx);
 	});
 
@@ -1646,6 +1729,11 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			reconcileProjectRefresh(ctx);
 			reconcileSessionTimer();
 			reconcileAgentTimer();
+			refresh();
+		},
+		getCustomVariables: () => customVariables.snapshot(),
+		setCustomValueColor(owner, key, value) {
+			currentConfig = scopeConfig(saveCustomValueColor(owner, key, value));
 			refresh();
 		},
 		setComponentColor(owner, key, value, ctx) {
@@ -1735,7 +1823,10 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			if (patch.enabled === false) {
 				if (!host.skinOnly) workingLineExtensions.clear();
 			}
-			return workingLine.reconcile(ctx);
+			summaryRate.reconcile(summaryEnabled());
+			const result = workingLine.reconcile(ctx);
+			reconcileLiveMetadata();
+			return result;
 		},
 		setSelectorBordersComponent(
 			patch: Partial<SelectorBordersComponentConfig>,
@@ -1839,6 +1930,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		unsubscribeHostProjectChanges();
+		liveMetadata.dispose();
 		customVariableSessionReady = false;
 		customVariables.clear();
 		usageTotals.invalidate();
@@ -1847,6 +1940,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!host.skinOnly) thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
+		summaryRate.reset();
 		if (!host.skinOnly) workingLine.dispose(ctx);
 		if (!host.skinOnly) workingLineExtensions.invalidate();
 		cleanupUi(ctx);
@@ -1862,19 +1956,25 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("agent_start", (event, ctx) => {
 		liveContext.clear();
 		const { interactionStarted } = interactionMetrics.agentStart();
+		liveMetadata.startAgent(interactionStarted);
+		summaryRate.agentStart(interactionStarted, summaryEnabled());
 		startAgentTurn(interactionStarted);
 		if (!host.skinOnly) workingLine.startAgent(ctx);
 		syncInteractiveState(event, ctx);
 	});
 	pi.on("turn_start", (_event, ctx) => {
+		liveMetadata.startResponse();
 		interactionMetrics.turnStart();
+		summaryRate.turnStart();
 		if (!host.skinOnly) workingLine.startTurn(ctx);
 	});
 	pi.on("agent_end", (event, ctx) => {
+		suspendTokenRate();
 		if (!host.skinOnly) thinkingExperimental.endAgent();
 		liveContext.clear();
 		const displayTokens = interactionMetrics.currentDisplayTokens();
 		interactionMetrics.agentEnd();
+		summaryRate.agentEnd();
 		pauseAgentRun();
 		if (host.skinOnly) {
 			const settled = interactionMetrics.settle(ctx.isIdle());
@@ -1887,6 +1987,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
 	pi.on("model_select", (event, ctx) => {
+		clearTokenRate();
 		liveContext.clear();
 		syncInteractiveState(event, ctx);
 	});
@@ -1895,6 +1996,12 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("message_update", (event, ctx) => {
 		if (!host.skinOnly) thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
+		summaryRate.observeTime();
+		if (!host.skinOnly)
+			liveMetadata.updateResponse(
+				event.message,
+				"assistantMessageEvent" in event ? event.assistantMessageEvent : undefined,
+			);
 		const metrics = interactionMetrics.messageUpdate(
 			event.message,
 			"assistantMessageEvent" in event ? event.assistantMessageEvent : undefined,
@@ -1907,6 +2014,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("message_end", (event, ctx) => {
 		if (!host.skinOnly) thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
+		summaryRate.messageEnd(event.message, result);
+		if (!host.skinOnly) liveMetadata.endResponse(event.message, result);
 		if (result.status === "accepted") {
 			if (!host.skinOnly)
 				workingLine.flushMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);
@@ -1930,16 +2039,20 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			refreshInteractiveState(ctx);
 			const settled = interactionMetrics.settle(ctx.isIdle());
 			if (!settled) return;
+			const averageTokenRate = summaryRate.settle(settled.nextStartedAt === undefined);
+			if (settled.nextStartedAt !== undefined) liveMetadata.partitionRates();
 			settleAgentTurn(settled.nextStartedAt);
 			if (!host.skinOnly) workingLine.settle(settled.nextTokens, settled.nextThought, ctx);
 			const config = currentConfig.components.workingLine;
 			if (config.enabled && config.turnSummary) {
 				try {
-					const summary = {
-						version: 3 as const,
-						...settled.summary,
-						stylePrefix: snapshotWorkingLineHighStyle(ctx.ui.theme, config, currentConfig.colors),
-					};
+					const summary = createTurnSummaryData(
+						settled.summary,
+						averageTokenRate,
+						ctx.ui.theme,
+						config,
+						currentConfig.colors,
+					);
 					pi.appendEntry(TURN_SUMMARY_ENTRY_TYPE, summary);
 				} catch {
 					// A transcript persistence failure must not break settlement cleanup.
@@ -1947,19 +2060,29 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			}
 		});
 	pi.on("tool_execution_start", (event, ctx) => {
+		suspendTokenRate();
 		liveContext.clear();
 		if (!host.skinOnly) workingLine.startTool(event.toolCallId, event.toolName, ctx);
 		syncInteractiveState(event, ctx);
 	});
 	pi.on("tool_execution_end", (event, ctx) => {
+		liveMetadata.invalidateProject();
 		if (!host.skinOnly) workingLine.finishTool(event.toolCallId, ctx);
 		syncInteractiveAndProjectState(event, ctx);
 	});
+	// Hook presence changes OMP maintenance/transition behavior, even for no-op handlers.
+	if (!host.skinOnly) {
+		pi.on("session_before_compact", clearTokenRate);
+		pi.on("session_before_switch", clearTokenRate);
+	}
 	pi.on("session_compact", (event, ctx) => {
+		clearTokenRate();
 		liveContext.clear();
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
 	pi.on("session_tree", (event, ctx) => {
+		liveMetadata.resetRate();
+		liveMetadata.invalidateProject();
 		liveContext.clear();
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});

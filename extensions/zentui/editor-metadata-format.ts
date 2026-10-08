@@ -1,19 +1,20 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { CodexQuota } from "./codex-quota";
 import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor, editorShellColor } from "./component-colors";
 import { OPENCODE_FORMAT_VARIABLES, type ZentuiConfig } from "./config";
+import { renderCustomValue } from "./custom-value-colors";
 import { normalizeTemplateVariables } from "./custom-variable-format";
-import { sanitizeCustomVariableText } from "./custom-variables";
-import { type FormatToken, parseFooterFormat } from "./footer-format";
+import {
+	parseFooterFormat,
+	type ReadonlyFormatToken,
+	renderJoinedTokenFields,
+} from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
 import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
-import {
-	EDITOR_ACCENT_FALLBACK,
-	renderStyleForSource,
-	renderStyleForSourceOrFallback,
-	safeThemeFg,
-} from "./style";
+import { liveMetadataColor } from "./live-metadata-display";
+import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
 
 export type EditorMetadataValues = {
 	codexQuota?: CodexQuota;
@@ -198,7 +199,7 @@ function renderVariable(
 			? editor.styles[editor.style]
 			: editor.styles.opencode;
 	const aliases = normalizeTemplateVariables(style.variables, OPENCODE_FORMAT_VARIABLES);
-	if (isHostTemplateVariable(name)) {
+	if (isHostTemplateVariable(name) && !Object.hasOwn(aliases, name)) {
 		const plain = sanitizeEditorMetadataText(values.hostTemplateValues?.[name] ?? "");
 		return {
 			plain,
@@ -206,7 +207,7 @@ function renderVariable(
 				? renderStyleForSourceOrFallback(
 						uiTheme,
 						editor.colorSource,
-						componentColor(config, "editor", "border"),
+						liveMetadataColor(config, "editor", name) ?? componentColor(config, "editor", "border"),
 						"border",
 						plain,
 					)
@@ -215,15 +216,19 @@ function renderVariable(
 	}
 	if (Object.hasOwn(aliases, name)) {
 		const raw = values.customVariables?.get(aliases[name]) ?? "";
-		const text = sanitizeCustomVariableText(raw, style.extensionColorMode ?? "original");
+		const text = renderCustomValue({
+			key: aliases[name],
+			raw,
+			colors: editor.customValueColors,
+			mode: style.extensionColorMode ?? "original",
+			theme: uiTheme,
+			source: editor.colorSource,
+			fallbackStyle: config.colors.extensionStatus,
+		});
 		const plain = sanitizeEditorMetadataText(text);
 		return {
 			plain,
-			styled: plain
-				? style.extensionColorMode === "zentui"
-					? renderStyleForSource(uiTheme, editor.colorSource, config.colors.extensionStatus, plain)
-					: text
-				: "",
+			styled: plain ? text : "",
 		};
 	}
 	if (name === "codex_quota") {
@@ -311,7 +316,33 @@ function renderVariable(
 }
 
 function renderTokens(
-	tokens: FormatToken[],
+	tokens: readonly ReadonlyFormatToken[],
+	values: EditorMetadataValues,
+	uiTheme: Theme,
+	config: ZentuiConfig,
+	shellMode = false,
+): RenderedTokens {
+	const hasJoin = tokens.some((token) => token.kind === "var" && token.name === "join_sep");
+	let hasDynamic = false;
+	let hasNonEmptyDynamic = false;
+	const styled = renderJoinedTokenFields(
+		tokens,
+		(field) => {
+			const rendered = renderTokenField(field, values, uiTheme, config, shellMode);
+			hasDynamic ||= rendered.hasDynamic;
+			if (!hasJoin || stripVTControlCharacters(rendered.styled).trim())
+				hasNonEmptyDynamic ||= rendered.hasNonEmptyDynamic;
+			return rendered.styled;
+		},
+		() => safeThemeFg(uiTheme, "border", " · "),
+	);
+	// An empty join cannot keep an enclosing optional group alive.
+	if (hasJoin && !stripVTControlCharacters(styled).trim()) hasDynamic = true;
+	return { styled, hasDynamic, hasNonEmptyDynamic };
+}
+
+function renderTokenField(
+	tokens: readonly ReadonlyFormatToken[],
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,

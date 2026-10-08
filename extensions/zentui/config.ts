@@ -22,6 +22,11 @@ import {
 	componentColorKeys,
 	normalizeComponentColors,
 } from "./component-colors";
+import {
+	type CustomValueColors,
+	customValueColor,
+	normalizeCustomValueColors,
+} from "./custom-value-colors";
 import { normalizeTemplateVariables } from "./custom-variable-format";
 import { MAX_CUSTOM_VARIABLES } from "./custom-variables";
 import { HOST_TEMPLATE_VARIABLES } from "./host-template-values";
@@ -42,6 +47,7 @@ import {
 } from "./minimalist-template";
 import type { ComponentPreset } from "./presets";
 import { isSupportedColorSpec } from "./style";
+import { DEFAULT_TURN_SUMMARY_FORMAT, normalizeTurnSummaryFormat } from "./turn-summary-format";
 import { normalizeWorkingLineMessages } from "./working-line";
 import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
 
@@ -144,6 +150,7 @@ export const OPENCODE_FORMAT_VARIABLES = [
 	"cache_hit",
 	"codex_quota",
 	"sep",
+	"join_sep",
 	"separator",
 	...HOST_TEMPLATE_VARIABLES,
 ] as const;
@@ -191,6 +198,7 @@ export type EditorStylesConfig = {
 export type EditorComponentConfig = {
 	codexQuota: boolean;
 	colors?: ComponentColors<"editor">;
+	customValueColors?: CustomValueColors;
 	enabled: boolean;
 	style: EditorStyle;
 	colorSource: ColorSource;
@@ -249,6 +257,7 @@ export type StarshipFooterStyleConfig = TemplateVariableConfig & {
 export type FooterComponentConfig = {
 	codexQuota: boolean;
 	colors?: ComponentColors<"footer">;
+	customValueColors?: CustomValueColors;
 	style: FooterStyle;
 	colorSource: ColorSource;
 	modelLabel: ModelLabelSource;
@@ -267,6 +276,7 @@ export type WorkingLineSegmentsConfig = {
 	elapsed: boolean;
 	thought: boolean;
 	tokens: boolean;
+	tokenRate?: boolean;
 };
 
 export const DEFAULT_WORKING_LINE_SPINNER_INTERVAL_MS = 100;
@@ -287,6 +297,7 @@ export type WorkingLineComponentConfig = {
 	colors?: ComponentColors<"workingLine">;
 	enabled: boolean;
 	turnSummary: boolean;
+	turnSummaryFormat: string;
 	spinner: WorkingLineSpinner;
 	spinnerIntervalMs: number;
 	animateSpinnerColor: boolean;
@@ -387,6 +398,7 @@ export type PolishedTuiColors = {
 	contextWarning: ColorSpec;
 	contextError: ColorSpec;
 	tokens: ColorSpec;
+	cacheHit?: ColorSpec;
 	cost: ColorSpec;
 	separator: ColorSpec;
 	runtimePrefix: ColorSpec;
@@ -481,6 +493,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"git_added",
 	"git_deleted",
 	"sep",
+	"join_sep",
 	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 
@@ -591,6 +604,7 @@ const defaultComponents: ComponentsConfig = {
 	workingLine: {
 		enabled: false,
 		turnSummary: true,
+		turnSummaryFormat: DEFAULT_TURN_SUMMARY_FORMAT,
 		spinner: "star-bloom",
 		spinnerIntervalMs: DEFAULT_WORKING_LINE_SPINNER_INTERVAL_MS,
 		animateSpinnerColor: false,
@@ -598,7 +612,7 @@ const defaultComponents: ComponentsConfig = {
 		textAnimation: "classic",
 		colorSource: "theme",
 		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
-		segments: { tool: true, elapsed: true, thought: true, tokens: true },
+		segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
 		placement: "above",
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
@@ -824,6 +838,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		contextWarning: colorValue(record, "contextWarning"),
 		contextError: colorValue(record, "contextError"),
 		tokens: colorValue(record, "tokens"),
+		cacheHit: colorValue(record, "cacheHit"),
 		cost: colorValue(record, "cost"),
 		separator: colorValue(record, "separator"),
 		runtimePrefix: colorValue(record, "runtimePrefix"),
@@ -1401,6 +1416,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 		extensionStatuses: resolveExtensionStatusComponent(components.extensionStatuses),
 		editor: {
 			codexQuota: parseBoolean(editor.codexQuota, false),
+			...(isRecord(editor.customValueColors)
+				? { customValueColors: normalizeCustomValueColors(editor.customValueColors) }
+				: {}),
 			...(isRecord(editor.colors)
 				? { colors: normalizeComponentColors("editor", editor.colors) }
 				: {}),
@@ -1512,6 +1530,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				: {}),
 			enabled: parseBoolean(workingLine.enabled, defaultComponents.workingLine.enabled),
 			turnSummary: parseBoolean(workingLine.turnSummary, defaultComponents.workingLine.turnSummary),
+			turnSummaryFormat: normalizeTurnSummaryFormat(workingLine.turnSummaryFormat),
 			spinner:
 				workingLine.spinner === "braille" ||
 				workingLine.spinner === "star-bloom" ||
@@ -1548,6 +1567,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			messages: resolveWorkingLineMessages(workingLineMessages),
 			segments: {
+				tokenRate: parseBoolean(workingLineSegments.tokenRate, false),
 				tool: parseBoolean(workingLineSegments.tool, defaultComponents.workingLine.segments.tool),
 				elapsed: parseBoolean(
 					workingLineSegments.elapsed,
@@ -1579,6 +1599,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 		},
 		footer: {
 			codexQuota: parseBoolean(footer.codexQuota, false),
+			...(isRecord(footer.customValueColors)
+				? { customValueColors: normalizeCustomValueColors(footer.customValueColors) }
+				: {}),
 			...(isRecord(footer.colors)
 				? { colors: normalizeComponentColors("footer", footer.colors) }
 				: {}),
@@ -1822,9 +1845,14 @@ function saveComponentsMutation(
 		const normalized = resolveComponents({ components });
 		const rawComponents = { ...recordValue(record.components) };
 		for (const owner of owners) {
-			const { colors: _colors, ...selection } = normalized[
-				owner
-			] as (typeof normalized)[typeof owner] & { colors?: unknown };
+			const {
+				colors: _colors,
+				customValueColors: _customValueColors,
+				...selection
+			} = normalized[owner] as (typeof normalized)[typeof owner] & {
+				colors?: unknown;
+				customValueColors?: unknown;
+			};
 			rawComponents[owner] = overlayKnown(rawComponents[owner], selection);
 		}
 		record.components = rawComponents;
@@ -2169,6 +2197,8 @@ export function saveWorkingLineComponentPatch(
 			const component = components.workingLine;
 			if (patch.enabled !== undefined) component.enabled = patch.enabled;
 			if (patch.turnSummary !== undefined) component.turnSummary = patch.turnSummary;
+			if (patch.turnSummaryFormat !== undefined)
+				component.turnSummaryFormat = normalizeTurnSummaryFormat(patch.turnSummaryFormat);
 			if (patch.spinner !== undefined) component.spinner = patch.spinner;
 			if (patch.spinnerIntervalMs !== undefined)
 				component.spinnerIntervalMs = patch.spinnerIntervalMs;
@@ -2188,11 +2218,15 @@ export function saveWorkingLineComponentPatch(
 			if (patch.segments?.thought !== undefined)
 				component.segments.thought = patch.segments.thought;
 			if (patch.segments?.tokens !== undefined) component.segments.tokens = patch.segments.tokens;
+			if (patch.segments?.tokenRate !== undefined)
+				component.segments.tokenRate = patch.segments.tokenRate;
 		},
 		path,
 		(record) => {
 			const workingLine = recordValue(recordValue(record.components).workingLine);
 			delete workingLine.intervalMs;
+			if (typeof patch.turnSummaryFormat === "string" && !patch.turnSummaryFormat.trim())
+				delete workingLine.turnSummaryFormat;
 			const messages = recordValue(workingLine.messages);
 			delete messages.mode;
 		},
@@ -2798,6 +2832,35 @@ export function saveComponentColor<O extends ColorOwner>(
 					writable: true,
 				});
 			component.colors = colors;
+		},
+	);
+}
+
+/** One sparse publisher leaf; selection snapshots exclude the entire map. */
+export function saveCustomValueColor(
+	owner: "editor" | "footer",
+	key: string,
+	value: string | undefined,
+	path = configPath,
+): PolishedTuiConfig {
+	if (customValueColor({ [key]: value ?? "" }, key) === undefined)
+		throw new Error("Unsupported publisher key or color style");
+	return saveComponentsMutation(
+		[owner],
+		() => {},
+		path,
+		(record) => {
+			const component = recordValue(recordValue(record.components)[owner]);
+			const colors = { ...recordValue(component.customValueColors) };
+			if (value === undefined) delete colors[key];
+			else
+				Object.defineProperty(colors, key, {
+					value,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				});
+			component.customValueColors = colors;
 		},
 	);
 }
