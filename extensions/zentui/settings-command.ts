@@ -15,6 +15,7 @@ import {
 	type ComponentSettingsDeps,
 	confirmComponentMigration,
 	editComponentColors,
+	editCustomValueColors,
 } from "./component-settings";
 import {
 	type AccentRailEditorStyleConfig,
@@ -222,6 +223,7 @@ type SettingsOutcome =
 	| "close"
 	| "migrate"
 	| `edit-colors:${ColorOwner}`
+	| `edit-custom-value-colors:${"editor" | "footer"}`
 	| "edit-minimalist-templates"
 	| "edit-minimalist-variables"
 	| "edit-working-line-messages"
@@ -899,7 +901,8 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 		{
 			id: "workingLineTextAnimation",
 			label: "Text animation",
-			description: "Animate the owned row or keep it uniformly static.",
+			description:
+				"Classic/KITT animate every segment, including Token rate; Static uses mid with optional Token rate override.",
 			currentValue: workingLine.textAnimation,
 			values: workingLineTextAnimationValues,
 		},
@@ -944,6 +947,14 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 			label: "Thinking time",
 			description: "Show cumulative wall-clock thinking time and active updates.",
 			currentValue: featureValue(workingLine.segments.thought),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineTokenRate",
+			label: "Token rate",
+			description:
+				"Recent generated output per second; ~ marks an estimate. Hidden during tools, idle, compaction, or stale/unsupported output.",
+			currentValue: featureValue(workingLine.segments.tokenRate ?? false),
 			values: featureStateValues,
 		},
 		{
@@ -1689,7 +1700,20 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									id: `edit-colors:${colorOwner}`,
 									label: "Color overrides",
 									description:
-										"Edit only this component's raw styles. Roles unused by the selected style stay saved for other styles; Static Working line uses mid; Turn summaries use high. Reset resumes inheritance; empty means unstyled.",
+										"Edit only this component's raw styles. Roles unused by the selected style stay saved for other styles; Static Working line uses mid with optional Token rate override; Classic/KITT animate every segment; Turn summaries use high. Reset resumes inheritance; empty means unstyled.",
+									currentValue: "Edit…",
+									values: ["Edit…"],
+								});
+							if (
+								activeSection === "editor" ||
+								(activeSection === "footer" &&
+									deps.getConfig().components.footer.style === "starship")
+							)
+								items.push({
+									id: `edit-custom-value-colors:${activeSection}`,
+									label: "Individual custom value colors",
+									description:
+										"Style one publisher key across aliases in this owner. Original/Zentui remains the fallback; Reset inherits, empty is unstyled.",
 									currentValue: "Edit…",
 									values: ["Edit…"],
 								});
@@ -1730,6 +1754,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										if (
 											id === "migrate" ||
 											id.startsWith("edit-colors:") ||
+											id.startsWith("edit-custom-value-colors:") ||
 											id === "edit-minimalist-templates" ||
 											id === "edit-minimalist-variables"
 										) {
@@ -2046,7 +2071,8 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											(id === "workingLineTool" ||
 												id === "workingLineElapsed" ||
 												id === "workingLineThought" ||
-												id === "workingLineTokens") &&
+												id === "workingLineTokens" ||
+												id === "workingLineTokenRate") &&
 											enabled !== undefined
 										) {
 											const key =
@@ -2056,7 +2082,9 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 														? "elapsed"
 														: id === "workingLineThought"
 															? "thought"
-															: "tokens";
+															: id === "workingLineTokenRate"
+																? "tokenRate"
+																: "tokens";
 											const result = deps.setWorkingLineComponent(
 												{ segments: { [key]: enabled } },
 												ctx,
@@ -2406,6 +2434,15 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					}
 				}
 				if (outcome === "close" || outcome === undefined) return;
+				if (outcome.startsWith("edit-custom-value-colors:")) {
+					await editCustomValueColors(
+						ctx,
+						deps,
+						outcome.slice("edit-custom-value-colors:".length) as "editor" | "footer",
+					);
+					if (!deps.sessionLifecycle.isCurrent(generation)) return;
+					continue;
+				}
 				if (outcome === "migrate" || outcome.startsWith("edit-colors:")) {
 					if (outcome === "migrate") await confirmComponentMigration(ctx, deps);
 					else

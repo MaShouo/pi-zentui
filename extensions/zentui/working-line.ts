@@ -517,6 +517,7 @@ export type WorkingLineRuntimeSegments = {
 	thought?: { durationMs: number; active: boolean };
 	tokens?: { input: number; output: number; outputApproximate?: boolean };
 	extensions?: readonly string[];
+	tokenRate?: string;
 };
 
 export type WorkingLineFrameState = {
@@ -618,7 +619,11 @@ function fitWorkingLineExtensionSegments(
 
 export type ComposedWorkingLine = { message: string; row: string };
 
-type PreparedWorkingLine = ComposedWorkingLine & { spinnerWidth: number; rowWidth: number };
+type PreparedWorkingLine = ComposedWorkingLine & {
+	spinnerWidth: number;
+	rowWidth: number;
+	rate?: { text: string; codeStart: number };
+};
 
 /** Validate and measure the fixed visible width shared by every frame in a preset. */
 export function workingLineSpinnerWidth(spinnerId: WorkingLineComponentConfig["spinner"]): number {
@@ -650,7 +655,13 @@ function prepareWorkingLineRow(
 	const maximumRowCells = MAX_WORKING_LINE_FRAME_CELLS - spinnerWidth - 1;
 	const delimiter = " · ";
 	const tokens = config.segments.tokens ? formatWorkingLineTokens(runtime.tokens) : undefined;
-	const tokenWidth = tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0;
+	const tokenRate =
+		config.segments.tokenRate && /^(?:(?:~)?[1-9]\d*|—) tok\/s$/.test(runtime.tokenRate ?? "")
+			? runtime.tokenRate
+			: undefined;
+	const tokenWidth =
+		(tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0) +
+		(tokenRate ? visibleWidth(delimiter) + visibleWidth(tokenRate) : 0);
 	const extensions = fitWorkingLineExtensionSegments(
 		runtime.extensions ?? [],
 		Math.max(0, maximumRowCells - tokenWidth - 1),
@@ -694,9 +705,22 @@ function prepareWorkingLineRow(
 	if (accepted.has("elapsed") && elapsed) segments.push(elapsed);
 	if (accepted.has("thought") && thought) segments.push(thought);
 	if (tokens) segments.push(tokens);
+	const beforeRate = segments.filter(Boolean).join(delimiter);
+	if (tokenRate) segments.push(tokenRate);
 	segments.push(...extensions);
 	const row = segments.filter(Boolean).join(delimiter);
-	return { message: normalized, row, spinnerWidth, rowWidth: visibleWidth(row) };
+	return {
+		message: normalized,
+		row,
+		spinnerWidth,
+		rowWidth: visibleWidth(row),
+		rate: tokenRate
+			? {
+					text: tokenRate,
+					codeStart: beforeRate.length + delimiter.length,
+				}
+			: undefined,
+	};
 }
 
 type ScheduleDefinition = {
@@ -930,6 +954,17 @@ function buildPreparedWorkingLineFrames(
 	const render = workingLineTierRenderer(theme, config, colors);
 
 	if (config.textAnimation === "disabled") {
+		const rateStyle = normalizeWorkingLineStyleSpec(workingLineColor(config, colors, "tokenRate"));
+		const renderRate = (text: string) =>
+			rateStyle === undefined
+				? render("mid", text)
+				: renderStyleForSourceOrFallback(
+						theme,
+						config.colorSource,
+						rateStyle,
+						WORKING_LINE_FALLBACKS.mid,
+						text,
+					);
 		const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
 			spinnerTick: spinnerPhase + index,
 			textTick: 0,
@@ -937,7 +972,17 @@ function buildPreparedWorkingLineFrames(
 		let codeUnits = 0;
 		const frames = frameStates.map((state) => {
 			const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
-			const frame = `${render("mid", `${glyph} ${composed.row}`)}${SGR_RESET}`;
+			const row = composed.rate
+				? (() => {
+						const start = composed.rate.codeStart;
+						return (
+							render("mid", `${glyph} ${composed.row.slice(0, start)}`) +
+							renderRate(composed.rate.text) +
+							render("mid", composed.row.slice(start + composed.rate.text.length))
+						);
+					})()
+				: render("mid", `${glyph} ${composed.row}`);
+			const frame = `${row}${SGR_RESET}`;
 			codeUnits += frame.length;
 			if (codeUnits > MAX_WORKING_LINE_FRAME_CODE_UNITS)
 				throw new Error("Working-line animation exceeds its memory cap");
@@ -1087,6 +1132,7 @@ export function buildWorkingLinePreviewFrames(
 			elapsedMs: 62_000,
 			thought: { durationMs: 10_000, active: true },
 			tokens: { input: 1234, output: 56 },
+			tokenRate: "~48 tok/s",
 		},
 		spinnerStartTick,
 		textStartTick,
@@ -1150,6 +1196,7 @@ export class WorkingLineController {
 	private installedPhase: InstalledAnimationPhase | undefined;
 	private installedIndicatorOptions: WorkingIndicatorOptions | undefined;
 	private tokens: WorkingLineRuntimeSegments["tokens"];
+	private tokenRate = "";
 	private thought: WorkingLineRuntimeSegments["thought"];
 	private extensionSegments: readonly string[] = [];
 	private extensionSegmentsDirty = false;
@@ -1218,6 +1265,12 @@ export class WorkingLineController {
 		this.thought = thought;
 		this.scheduleMetricIndicator(ctx);
 		this.reconcileElapsedUpdates(ctx);
+	}
+
+	updateTokenRate(text: string, ctx: WorkingLineContext): void {
+		if (text === this.tokenRate) return;
+		this.tokenRate = text;
+		this.scheduleMetricIndicator(ctx);
 	}
 
 	updateTokens(tokens: WorkingLineRuntimeSegments["tokens"], ctx: WorkingLineContext): void {
@@ -1393,6 +1446,7 @@ export class WorkingLineController {
 						workingLineColor(config, rootConfig.colors, "low"),
 						workingLineColor(config, rootConfig.colors, "mid"),
 						workingLineColor(config, rootConfig.colors, "high"),
+						workingLineColor(config, rootConfig.colors, "tokenRate"),
 					]),
 			row,
 		]);
@@ -1405,6 +1459,7 @@ export class WorkingLineController {
 			elapsedMs: this.agentActive ? this.durationClock.elapsedMs() : undefined,
 			thought,
 			tokens: this.tokens,
+			tokenRate: this.agentActive ? this.tokenRate : "",
 			extensions: this.extensionSegments,
 		};
 	}
@@ -1829,6 +1884,7 @@ export class WorkingLineController {
 		this.agentActive = false;
 		this.activeTools.clear();
 		this.tokens = undefined;
+		this.tokenRate = "";
 		this.thought = undefined;
 		this.invalidateExtensionSegments();
 	}
