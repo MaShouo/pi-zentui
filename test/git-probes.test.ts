@@ -33,7 +33,7 @@ beforeEach(() => {
 	failed = [];
 	failure = new Error("transient");
 	probe.exec.mockReset().mockImplementation(async (_command, args: string[]) => {
-		args = args.slice(2);
+		while (args[0] === "-c") args = args.slice(2);
 		if (failed.includes(args[0])) throw failure;
 		if (args[0] === "status") return { stdout: status };
 		if (args[0] === "stash") return { stdout: "stash@{0}: WIP\nstash@{1}: WIP\n" };
@@ -61,11 +61,14 @@ describe("readGitStatus subprocess demand", () => {
 			status: { branch: "main", stashed: 2, dirty: true, ahead: 2, behind: 1 },
 		});
 		expect(probe.exec).toHaveBeenCalledTimes(3);
-		expect(probe.exec.mock.calls.map((call) => call[1][2])).toEqual([
-			"status",
-			"stash",
-			"rev-parse",
-		]);
+		expect(
+			probe.exec.mock.calls.map((call) =>
+				call[1].find(
+					(arg: string, index: number) =>
+						arg !== "-c" && (index === 0 || call[1][index - 1] !== "-c"),
+				),
+			),
+		).toEqual(["status", "stash", "rev-parse"]);
 		expect(probe.exec).toHaveBeenLastCalledWith(
 			"git",
 			[
@@ -86,6 +89,15 @@ describe("readGitStatus subprocess demand", () => {
 				}),
 			}),
 		);
+	});
+
+	it("runs index-refreshing probes without optional locks", async () => {
+		await readGitStatus(root, { readMetrics: true });
+		const refreshing = probe.exec.mock.calls.filter(
+			(call) => call[1].includes("status") || call[1].includes("diff"),
+		);
+		expect(refreshing).toHaveLength(2);
+		for (const call of refreshing) expect(call[2].env.GIT_OPTIONAL_LOCKS).toBe("0");
 	});
 
 	it("uses one process for branch-only/minimalist demand", async () => {
@@ -113,7 +125,16 @@ describe("readGitStatus subprocess demand", () => {
 		expect(probe.exec).toHaveBeenCalledTimes(5);
 		expect(probe.exec).toHaveBeenCalledWith(
 			"git",
-			["-c", "core.fsmonitor=false", "diff", "HEAD", "--numstat", "--ignore-submodules=all"],
+			[
+				"-c",
+				"core.fsmonitor=false",
+				"-c",
+				"diff.autoRefreshIndex=false",
+				"diff",
+				"HEAD",
+				"--numstat",
+				"--ignore-submodules=all",
+			],
 			expect.anything(),
 		);
 	});

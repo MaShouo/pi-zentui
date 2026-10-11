@@ -36,6 +36,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		ensureConfigExists() {},
 		loadConfig: vi.fn(() => {
 			current = structuredClone(actual.defaultConfig);
+			current.components.footer.colorSource = "theme";
 			current.projectRefreshIntervalMs = 5000;
 			current.components.editor.enabled = false;
 			current.components.footer.styles.starship.format = "$git_branch";
@@ -163,7 +164,7 @@ beforeEach(() => {
 	fixture.runtime.mockReset().mockResolvedValue({ kind: "ok", runtime: undefined });
 	fixture.packageVersion.mockReset().mockResolvedValue({ kind: "ok", result: null });
 	fixture.exec.mockReset().mockImplementation(async (_command, args: string[], options) => {
-		args = args.slice(2);
+		while (args[0] === "-c") args = args.slice(2);
 		if (args[0] === "status") {
 			if (failStatus) throw new Error(failStatus);
 			return deferred ? deferred() : { stdout: status };
@@ -347,11 +348,14 @@ describe("owned project demand through real index and git reader", () => {
 		});
 		const h = harness();
 		await h.emit("session_start");
-		expect(fixture.exec.mock.calls.map((call) => call[1][2])).toEqual([
-			"status",
-			"stash",
-			"rev-parse",
-		]);
+		expect(
+			fixture.exec.mock.calls.map((call) =>
+				call[1].find(
+					(arg: string, index: number) =>
+						arg !== "-c" && (index === 0 || call[1][index - 1] !== "-c"),
+				),
+			),
+		).toEqual(["status", "stash", "rev-parse"]);
 	});
 
 	it("includes compact-only git and stops when compact responsiveness is disabled", async () => {
@@ -382,7 +386,14 @@ describe("owned project demand through real index and git reader", () => {
 		});
 		const h = harness();
 		await h.emit("session_start");
-		expect(fixture.exec.mock.calls.map((call) => call[1][2])).toEqual(commands);
+		expect(
+			fixture.exec.mock.calls.map((call) =>
+				call[1].find(
+					(arg: string, index: number) =>
+						arg !== "-c" && (index === 0 || call[1][index - 1] !== "-c"),
+				),
+			),
+		).toEqual(commands);
 	});
 
 	it("clears demand on footer disposal without changing the other surface", async () => {
@@ -417,6 +428,7 @@ describe("owned project demand through real index and git reader", () => {
 			c.components.editor.enabled = true;
 			c.components.editor.style = "minimalist";
 			c.components.editor.styles.minimalist.showGit = false;
+			c.components.editor.styles.minimalist.formats = { bottomLeft: "" };
 			c.components.editor.styles.minimalist.pathDisplay = "project";
 		});
 		const roots = vi.spyOn(RepositoryRootController.prototype, "update");

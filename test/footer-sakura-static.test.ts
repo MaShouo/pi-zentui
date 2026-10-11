@@ -20,6 +20,7 @@ describe.each(["truecolor", "256color", "none"] as const)("static Sakura Footer 
 			icons: { mode: "nerd" },
 			components: {
 				footer: {
+					colorSource: "theme",
 					styles: {
 						starship: {
 							responsive: true,

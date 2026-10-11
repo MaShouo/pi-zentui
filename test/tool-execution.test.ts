@@ -56,7 +56,7 @@ function makeTool(
 		{},
 		{
 			renderShell: options.renderShell,
-			renderCall: (args: AnyRecord) => textComponent(options.call ?? `read ${args.path}`),
+			renderCall: (args) => textComponent(options.call ?? `read ${(args as AnyRecord).path}`),
 			renderResult: () => textComponent(body),
 		},
 		ui,

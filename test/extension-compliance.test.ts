@@ -46,8 +46,14 @@ import {
 import { installUserMessageStyle as installUserMessageStyleProduction } from "../extensions/zentui/user-message";
 import { sanitizeUserMessageSourceText } from "../extensions/zentui/user-message-osc";
 
-// These integration fixtures assert the historical Nerd glyphs, independent of the host terminal.
-const defaultConfig = mergeConfig({ icons: { mode: "nerd" } }, {});
+// These integration fixtures assert Nerd glyphs and theme callbacks, independent of terminal defaults.
+const defaultConfig = mergeConfig(
+	{
+		icons: { mode: "nerd" },
+		colorSources: { editor: "theme", userMessages: "theme", starship: "theme" },
+	},
+	{},
+);
 
 const isolatedAgentDir = vi.hoisted(() => {
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -3332,7 +3338,13 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				components: { editor: { style: "minimalist" } },
+				components: {
+					editor: {
+						style: "minimalist",
+						colorSource: "theme",
+						styles: { minimalist: { showSessionName: true, showTimer: true } },
+					},
+				},
 				projectRefreshIntervalMs: 0,
 			}),
 		);
@@ -3424,7 +3436,13 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				components: { editor: { style: "minimalist" } },
+				components: {
+					editor: {
+						style: "minimalist",
+						colorSource: "theme",
+						styles: { minimalist: { showSessionName: true, showTimer: true } },
+					},
+				},
 				projectRefreshIntervalMs: 0,
 			}),
 		);
@@ -3579,7 +3597,13 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				components: { editor: { style: "minimalist" } },
+				components: {
+					editor: {
+						style: "minimalist",
+						colorSource: "theme",
+						styles: { minimalist: { showSessionName: true, showTimer: true } },
+					},
+				},
 				projectRefreshIntervalMs: 0,
 				features: { statusLine: false },
 			}),
@@ -3647,7 +3671,13 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				components: { editor: { style: "minimalist" } },
+				components: {
+					editor: {
+						style: "minimalist",
+						colorSource: "theme",
+						styles: { minimalist: { showSessionName: true, showTimer: true } },
+					},
+				},
 				projectRefreshIntervalMs: 5_000,
 				features: { statusLine: false },
 			}),
