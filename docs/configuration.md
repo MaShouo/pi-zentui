@@ -16,7 +16,7 @@ Disabled, native and unowned surfaces do not demand these probes on behalf of Ze
 
 ## Start with minimal overrides
 
-Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, Starship Footer, and Working line with Border placement; Thinking (Experimental) is disabled. All presets inherit these Working-line defaults without overriding saved choices.
+Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, Starship Footer, and Working line with Border placement; Thinking (Experimental) and Tool display are disabled. All presets inherit these Working-line defaults without overriding saved choices.
 
 Change just one surface:
 
@@ -45,17 +45,18 @@ Native releases Zentui's ownership; Hidden hides Footer metrics, path, and model
 
 ## `/zentui` settings
 
-The interactive `/zentui` menu is split into seven component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
+The interactive `/zentui` menu is split into eight component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
 
 1. **Appearance** — component Preset; selector-border enablement, informational fixed style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, Codex quota, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
 5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens/Token rate segments, and animated preview.
-6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
+6. **Tool display** — disabled by default; Native/Opencode/Balanced/Verbose presets, independent output modes, preview/collapse limits, diff layout, builtin eligibility, and explicit Override Bash renderer consent. Requires a supported public renderer API, not another package. See [Tool display](./tool-display.md).
+7. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
    - **Segments →** — visibility toggles for non-Git Starship segments.
    - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
-7. **Extension statuses** — one Default placement and each observed/saved extension's placement and color. Off controls visibility; positions are saved per Footer mode.
+8. **Extension statuses** — one Default placement and each observed/saved extension's placement and color. Off controls visibility; positions are saved per Footer mode.
 
 The two Footer child entries appear only with Starship selected. Child headings show their scope (for example, **Footer > Git**). The configured cancel key returns to Footer focused on the originating child entry; at the top level it still closes settings. `Tab` / `Shift+Tab` remain available on child pages to move to the next / previous top-level section relative to Footer. Visiting or backing out of a page does not save settings or change component ownership.
 
@@ -71,6 +72,7 @@ Every section and Footer child page has a direct route and completion:
 /zentui user-messages
 /zentui thinking
 /zentui working-line
+/zentui tool-display
 /zentui footer
 /zentui segments
 /zentui git
@@ -244,6 +246,29 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
         "labeled": {}
       }
     },
+    "toolDisplay": {
+      "enabled": false,
+      "style": "opencode",
+      "registerToolOverrides": {
+        "read": true, "write": true, "edit": true, "bash": true,
+        "grep": true, "find": true, "ls": true
+      },
+      "builtinRendererOverrides": {},
+      "customToolOverrides": {},
+      "readOutputMode": "hidden",
+      "searchOutputMode": "hidden",
+      "mcpOutputMode": "hidden",
+      "bashOutputMode": "opencode",
+      "previewLines": 8,
+      "expandedPreviewMaxLines": 4000,
+      "bashCollapsedLines": 10,
+      "diffViewMode": "auto",
+      "diffIndicatorMode": "bars",
+      "diffSplitMinWidth": 120,
+      "diffCollapsedLines": 24,
+      "diffWordWrap": true,
+      "showTruncationHints": false
+    },
     "thinkingSteps": {
       "enabled": false,
       "mode": "tree"
@@ -415,8 +440,9 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.editor` owns Editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four style configurations.
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
+- `components.toolDisplay` independently owns opt-in tool-call/result rendering. Disabled or `style: "native"` delegates unchanged. Unsupported hosts stay native; saved preferences remain dormant. Only this owner is persisted by its settings edits, and no pi-tool-display config is read or written. See [Tool display modes, ownership and limits](./tool-display.md).
 - `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
-- All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.85.0, 0.87.1, and 1.0.3. The decorator also duck-types Pi thinking `MouseRegion` wrappers; Streaming temporarily clears native per-run visibility overrides so fold/Ctrl+T/left-click expand keep working, while Rail and Tree still follow Pi's hidden state. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
+- All three modes decorate Pi's private host renderer and are tested on exact Pi versions 1.0.0 and 1.0.3. The decorator also duck-types Pi thinking `MouseRegion` wrappers; Streaming temporarily clears native per-run visibility overrides so fold/Ctrl+T/left-click expand keep working, while Rail and Tree still follow Pi's hidden state. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.
 - `components.workingLine.placement` (`above | border`) selects a floating row or the Minimalist/Opencode top border (default). Accent Rail supports only Above. Disabled, native, unavailable, or unsafe/narrow editors and Pi versions without working-row visibility control fall back to Above without changing saved choices. Legacy `input` normalizes to `above`; the prompt remains available for typing.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
@@ -450,7 +476,7 @@ This example enables only Editor quota, without changing any component's style o
 
 **Custom templates remain authoritative.** Saved nonempty formats, including copies of old defaults, are never rewritten or augmented outside the template. Add `(  $codex_quota)` to either Opencode variant's `metadataFormat`, `($sep$codex_quota)` to a Footer wide `format`, or `$wrap_sep($codex_quota)` to `compactFormat`. Tokens remain empty when the corresponding quota toggle is off or the provider is ineligible. Unlike ordinary Footer `segments` flags, quota consent cannot be bypassed by a template.
 
-**Compatibility and privacy:** Zentui uses Pi's public active-model metadata, `modelRegistry.getProvider("openai-codex")`, and `getProviderAuth("openai-codex")`, available on supported Pi 0.85.0, 0.87.1, and 1.0.3. Hosts without safe model/provider routing metadata do not collect or display quota; unavailable auth shows placeholders. There is no fallback to private storage or older credential APIs; the Pi minimum is 0.85.0. Auth is sent only to `https://chatgpt.com/backend-api/wham/usage`, with redirects rejected. JWT decoding is limited to the account-routing claim and is not identity verification. An opaque credential change invalidates cached data conservatively.
+**Compatibility and privacy:** Zentui uses Pi's public active-model metadata, `modelRegistry.getProvider("openai-codex")`, and `getProviderAuth("openai-codex")`, available on supported Pi 1.0.0 and 1.0.3. Hosts without safe model/provider routing metadata do not collect or display quota; unavailable auth shows placeholders. There is no fallback to private storage or older credential APIs; the Pi minimum is 1.0.0. Auth is sent only to `https://chatgpt.com/backend-api/wham/usage`, with redirects rejected. JWT decoding is limited to the account-routing claim and is not identity verification. An opaque credential change invalidates cached data conservatively.
 
 The endpoint is undocumented and may change or reject some plans. Its path and seconds-based window field are corroborated by [OpenAI's Codex client](https://github.com/openai/codex/blob/rust-v0.98.0/codex-rs/backend-client/src/client.rs); this is not a public API guarantee. Automated verification uses synthetic responses, not a live account. No reset times, countdowns, alerts, or quota history are provided.
 
@@ -487,7 +513,7 @@ Use sparse `components.<owner>.colors` objects to change only one surface:
 
 Resolution is **component override → historical shared `colors` fallback → existing selected-source default**, both before and after explicit migration. Absent overrides preserve historical output. Shared colors remain optional live fallbacks indefinitely: changing a shared fallback can affect every owner that still inherits it. An override never changes another owner or its color source. There is no generated palette or resolved ANSI snapshot in these objects.
 
-Empty strings and whitespace-only strings mean deliberately **unstyled**, not missing. **Reset / inherit** deletes the local key; hand-deleting a key does the same. Unsupported values are ignored at runtime, while invalid and unknown future JSON keys remain preserved on disk. The settings editor validates supported style strings, distinguishes Escape from an empty submission, and offers role selection within one **Color overrides** action per component (selector borders use Appearance). Thinking (Experimental) has no raw color object or control.
+Empty strings and whitespace-only strings mean deliberately **unstyled**, not missing. **Reset / inherit** deletes the local key; hand-deleting a key does the same. Unsupported values are ignored at runtime, while invalid and unknown future JSON keys remain preserved on disk. The settings editor validates supported style strings, distinguishes Escape from an empty submission, and offers role selection within one **Color overrides** action per component (selector borders use Appearance). Thinking (Experimental) and Tool display have no raw color object or control; Tool display uses Pi semantic theme colors.
 
 | Owner | Local keys | Historical shared fallback |
 | --- | --- | --- |
@@ -803,7 +829,7 @@ Only an actually open thinking phase uses `•`; a text/tool transition or resto
 
 Streaming keeps the reviewed host-rendered behavior: while open it shows the latest five rendered terminal rows beneath `Thinking 7.1s`; completion folds under `Thought` or current-session `Thought for Ns`. Restored entries have no duration because Pi does not persist a reliable thinking-end timestamp. Only a session started in active Streaming owns its validated configured `app.thinking.toggle` binding and one-second timer. Ctrl+T and a left click on a Pi 0.85 thinking `MouseRegion` share one expand/refold preference. Startup resource failures and private-shape/render failures use complete native thinking. A cleanup callback that throws while leaving Streaming is contained: Rail or Tree remains active, while Streaming becomes unavailable for that session. Component and timing tracking are bounded to 256; evicted entries are restored natively first.
 
-The exact all-mode private matrix covers Pi 0.85.0, 0.87.1, and 1.0.3 under dark, light, and current themes, narrow/wide widths and resize; all three versions also have fullscreen live-transition PTY coverage. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
+The exact all-mode private matrix covers Pi 1.0.0 and 1.0.3 under dark, light, and current themes, narrow/wide widths and resize; both versions also have fullscreen live-transition PTY coverage. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
 
 ## Individual custom value colors
 
@@ -1096,7 +1122,7 @@ Pi 0.84 adds a native fullscreen TUI with sticky Editor and Footer plus an indep
 }
 ```
 
-Save this in Pi's `~/.pi/agent/settings.json`, select fullscreen in Pi's `/settings`, or use `--tui-mode fullscreen`. Zentui does not enable it automatically. Pi owns layout and scrolling while Zentui supplies configured components. Zentui requires Pi 0.85.0 or newer.
+Save this in Pi's `~/.pi/agent/settings.json`, select fullscreen in Pi's `/settings`, or use `--tui-mode fullscreen`. Zentui does not enable it automatically. Pi owns layout and scrolling while Zentui supplies configured components. Zentui requires Pi 1.0.0 or newer.
 
 ## Oh My Pi compatibility
 

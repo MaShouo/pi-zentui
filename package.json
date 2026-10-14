@@ -1,7 +1,7 @@
 {
 	"name": "pi-sakura-cyberdeck",
 	"version": "3.1.0",
-	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.30.0, with a focused Oh My Pi skin.",
+	"description": "A Sakura Macaron visual pack for Pi, built on Zentui v0.31.0, with a focused Oh My Pi skin.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
@@ -27,7 +27,9 @@
 		"LICENSE",
 		"omp.ts",
 		"docs/configuration.md",
-		"docs/footer-format.md"
+		"docs/footer-format.md",
+		"docs/tool-display.md",
+		"docs/tool-display-attribution.md"
 	],
 	"scripts": {
 		"check": "node scripts/check.mjs",
@@ -48,9 +50,9 @@
 		"prepublishOnly": "npm run verify && npm run pack:check"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": ">=0.85.0",
-		"@earendil-works/pi-coding-agent": ">=0.85.0",
-		"@earendil-works/pi-tui": ">=0.85.0",
+		"@earendil-works/pi-ai": ">=1.0.0",
+		"@earendil-works/pi-coding-agent": ">=1.0.0",
+		"@earendil-works/pi-tui": ">=1.0.0",
 		"@oh-my-pi/pi-ai": ">=18.4.10",
 		"@oh-my-pi/pi-coding-agent": ">=18.4.10",
 		"@oh-my-pi/pi-tui": ">=18.4.10"
@@ -99,9 +101,9 @@
 		"@earendil-works/pi-ai": "^1.0.3",
 		"@earendil-works/pi-coding-agent": "^1.0.3",
 		"@earendil-works/pi-tui": "^1.0.3",
-		"@oh-my-pi/pi-ai": "18.6.1",
-		"@oh-my-pi/pi-coding-agent": "18.6.1",
-		"@oh-my-pi/pi-tui": "18.6.1",
+		"@oh-my-pi/pi-ai": "18.8.9",
+		"@oh-my-pi/pi-coding-agent": "18.8.9",
+		"@oh-my-pi/pi-tui": "18.8.9",
 		"@types/node": "^26.6.2",
 		"typescript": "^7.0.2",
 		"vitest": "^5.0.1"

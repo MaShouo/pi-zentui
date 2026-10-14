@@ -1,6 +1,6 @@
 # Sakura Cyberdeck
 
-A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.30.0. Sakura Cyberdeck v3 requires Pi 0.85.0 or newer.
+A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.31.0. Sakura Cyberdeck v3 requires Pi 1.0.0 or newer.
 
 This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, focused gradient accents, quiet tool cards, and thinking trails.
 
@@ -23,7 +23,10 @@ Tool cards preserve Pi's rendered body, including ANSI highlighting and indentat
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
 - **Thinking (Experimental)** — optional Rail, Tree, or Streaming private thinking renderers, without owning the Working line
 - **Working line** — optional ownership of Pi's complete in-progress row and settled turn summary
+- **Tool display** — opt-in compact native tool calls/results and adaptive diffs ([reference](./docs/tool-display.md))
 - **Footer** — Pi's native Footer, a Starship-style statusline, or Hidden (only allowed extension statuses)
+
+Editor, User messages, Thinking (Experimental), Working line, Tool display, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
 
 ## Quick start
 
@@ -49,6 +52,7 @@ Matrix keeps its existing default (enabled) and saved preferences. `on` enables 
 | User messages | `framed` | Framed, copy-friendly, Compact, Labeled |
 | Thinking (Experimental) | disabled (`tree`) | Rail, Tree, Streaming |
 | Working line | disabled | Five spinner presets, live tool/time/thinking/token segments, turn summary |
+| Tool display | disabled (`opencode`) | Native, Opencode, Balanced, Verbose |
 | Footer | `starship` | Native, Starship, Hidden |
 | Selector borders | `zentui` | Independent enablement and color source |
 
@@ -98,6 +102,32 @@ Zentui detects a broad set of runtime and language modules, preserves Nerd Font 
 
 ![Zentui Labeled user-message style in a rounded frame with the label User.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/user-message-labeled.png)
 
+### Tool display
+
+<h4 align="center"><code>MCP call — collapsed</code></h4>
+
+![Zentui MCP tool call collapsed, showing the bracketed arguments and Pi's expand hint.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-mcp-collapsed.png)
+
+<h4 align="center"><code>MCP call — expanded</code></h4>
+
+![The same Zentui MCP call expanded with Ctrl+O, showing output: followed by each returned result line.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-mcp-expanded.png)
+
+<h4 align="center"><code>read</code></h4>
+
+![Zentui read result with preview lines under the call.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-read.png)
+
+<h4 align="center"><code>write</code></h4>
+
+![Zentui write showing the written content as an addition-only grid under a neutral written header.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-write.png)
+
+<h4 align="center"><code>diff</code></h4>
+
+![Zentui edit showing a split old/new diff with change bars.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-diff.png)
+
+<h4 align="center"><code>search and Bash</code></h4>
+
+![Zentui grep results separated from the call by a blank row, followed by a collapsed Bash command with streamed output.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-search.png)
+
 ## Oh My Pi
 
 Requires OMP **18.4.10 or newer**. From this checkout:
@@ -125,7 +155,7 @@ OMP also exposes opt-in [template data](./docs/configuration.md#omp-template-dat
 
 Sakura visuals follow the bundled `sakura-macaron` theme. Gradients frame the Header, current Editor, and User messages; by default, selectors and tool cards use quiet borders. The Footer directory is solid sakura, separators use the quiet border color, and its gauge is static between state changes. Set `components.editor.colors.border`, `components.userMessages.colors.border`, or `components.selectorBorders.colors.border` to the existing `sakura-macaron-gradient` marker to opt into gradient frames on that surface, with this theme or another; set an ordinary border color to override the Sakura treatment on that surface. Shared `colors.editorBorder` remains a legacy Editor/User-message fallback and the marker for Sakura transcript and Footer accents.
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or saved Starship placement/color preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Tool display, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or saved Starship placement/color preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
 ~/.pi/agent/zentui.json
@@ -196,13 +226,13 @@ Useful shortcuts:
 /zentui format clear
 ```
 
-**Thinking (Experimental)** uses one private `AssistantMessageComponent` renderer for Rail, Tree, and Streaming, tested against exact Pi versions 0.85.0 and 0.87.1. It is disabled by default and may break after Pi updates. Zentui installs an enabled startup mode before transcript restoration. A healthy installed controller lets active Streaming switch live to Rail or Tree, and lets Rail and Tree switch live between each other, without reinstalling its patch. Entering Streaming from Rail or Tree saves the choice but keeps the active structural mode until restart. Disabling live restores native thinking and releases Streaming resources. First enable and re-enable after a live disable are also restart-gated. Mode changes while disabled only preconfigure the next enable. Startup failures, missing constructors, incompatible private child layouts, parser limits, theme/render/width errors, and displaced patch ownership fail open to complete native thinking. If cleanup throws while leaving Streaming, disabling still restores native thinking and a structural selection still becomes active; the successful change warns that Streaming is unavailable for the rest of the session.
+**Thinking (Experimental)** uses one private `AssistantMessageComponent` renderer for Rail, Tree, and Streaming, tested against exact Pi versions 1.0.0 and 1.0.3. It is disabled by default and may break after Pi updates. Zentui installs an enabled startup mode before transcript restoration. A healthy installed controller lets active Streaming switch live to Rail or Tree, and lets Rail and Tree switch live between each other, without reinstalling its patch. Entering Streaming from Rail or Tree saves the choice but keeps the active structural mode until restart. Disabling live restores native thinking and releases Streaming resources. First enable and re-enable after a live disable are also restart-gated. Mode changes while disabled only preconfigure the next enable. Startup failures, missing constructors, incompatible private child layouts, parser limits, theme/render/width errors, and displaced patch ownership fail open to complete native thinking. If cleanup throws while leaving Streaming, disabling still restores native thinking and a structural selection still becomes active; the successful change warns that Streaming is unavailable for the rest of the session.
 
 Rail shows every parsed label in each native contiguous thinking run (`│ Label`, with only the open final phase shown as `│ • Label`). Tree independently shows the latest five labels in each run (`├─ · Label`, settled `└─ · Label`, open `└─ • Label`); it never aggregates across intervening text or tool blocks. Rail and Tree follow Pi's thinking visibility. Complete strict SGR styling is stripped before parsing; every other terminal control and unsafe or unstructured content keeps the complete run native. Labels are rendered by fresh host-shaped Pi Markdown instances before cropping, so emphasis, code, links, HTML, LaTeX, custom transforms, and native `thinkingText` styling remain host-controlled. Every label occupies one terminal row: ANSI/OSC/grapheme-aware cropping adds `…` only when needed. Native horizontal padding stays external. Connectors are styled directly with the current theme's `accent` callback on every render, so custom themes control them independently. Hidden native thinking remains hidden and keeps Pi's native hidden label.
 
 Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, folds completed reasoning under `Thought` or current-session `Thought for 12.3s`, and owns the configured thinking-toggle binding (Ctrl+T by default) only when started in Streaming. Its input listener and timer are acquired only for an enabled Streaming session start; startup acquisition failure uses native thinking and marks Streaming unavailable. Restored completions cannot recover a duration because Pi does not persist the thinking-end timestamp. Expand/refold and lifecycle tracking are bounded to 256 retained assistant components; evicted entries are first restored natively. All modes restore/dispose on shutdown. Thinking (Experimental) never writes the Working line and does not change its existing **Thinking time** option, working text, Footer, Editor, statuses, or model behavior.
 
-Pi provides a native fullscreen TUI with a sticky editor and Footer. Both tested Thinking versions are covered by a fullscreen live-transition PTY smoke in addition to the standard matrix. Zentui does not change Pi's TUI mode. Pi 1.0 defaults to fullscreen; use `--tui-mode regular` to keep terminal scrollback. On older Pi versions, select fullscreen from `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`. The full unit-test and typecheck matrix covers Pi 0.85.0, 0.87.1, and 1.0.0, including both native user-message layouts.
+Pi provides a native fullscreen TUI with a sticky editor and Footer. Zentui does not change Pi's TUI mode. Pi 1.0 defaults to fullscreen; use `--tui-mode regular` to keep terminal scrollback. The upstream compatibility matrix covers exact Pi versions 1.0.0 and 1.0.3.
 
 **Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
 
@@ -210,7 +240,7 @@ Minimalist can also show the latest assistant prompt's cache hit rate in its top
 
 ## Requirements
 
-- [Pi](https://pi.dev) coding agent 0.85.0 or newer
+- [Pi](https://pi.dev) coding agent 1.0.0 or newer
 - A [Nerd Font](https://www.nerdfonts.com/) for Nerd icons; Auto falls back to ASCII when no supported terminal signal is present
 
 ## Conflicts

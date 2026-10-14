@@ -8,7 +8,7 @@ const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-behavior-compatibility-"));
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error("Run through npm run test:behavior-compatibility");
-const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1", "1.0.3"];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["1.0.0", "1.0.3"];
 const packages = ["pi-ai", "pi-coding-agent", "pi-tui"];
 const tests = [
 	"codex-quota.test.ts",
@@ -29,20 +29,41 @@ const tests = [
 	"working-line-placement.test.ts",
 	"working-line-editor-placement.test.ts",
 	"working-line-lifecycle.integration.test.ts",
+	"tool-display-lifecycle.integration.test.ts",
+	"tool-display-controller.test.ts",
+	"tool-display-config.test.ts",
+	"tool-display-presets.test.ts",
+	"tool-display-renderers.test.ts",
+	"tool-display-mcp-args.test.ts",
+	"tool-display-diff.test.ts",
+	"tool-display-pending.test.ts",
 ];
 const vitest = JSON.parse(
 	readFileSync(join(root, "node_modules/vitest/package.json"), "utf8"),
 ).version;
 try {
 	for (const version of versions) {
-		// Pi 0.85.0's unbundled exports import pi-server but omit it from dependencies.
-		const installPackages = version === "0.85.0" ? [...packages, "pi-server"] : packages;
+		// Match the host's public package family, not just its top-level entries:
+		// Newer codemode can lose MCP_TYPESCRIPT_PREAMBLE before tests load.
+		const installPackages = [
+			...packages,
+			"pi-agent-core",
+			"chord",
+			"pi-codemode",
+			"pi-mcp",
+			"pi-telemetry",
+		];
 		const cwd = join(workspace, version);
 		mkdirSync(cwd);
 		cpSync(join(root, "extensions"), join(cwd, "extensions"), { recursive: true });
 		mkdirSync(join(cwd, "test"));
 		cpSync(join(root, "test/fixtures"), join(cwd, "test/fixtures"), { recursive: true });
 		for (const test of tests) cpSync(join(root, "test", test), join(cwd, "test", test));
+		cpSync(join(root, "test/tool-display-fixture.ts"), join(cwd, "test/tool-display-fixture.ts"));
+		cpSync(
+			join(root, "test/tool-display-context-fixture.ts"),
+			join(cwd, "test/tool-display-context-fixture.ts"),
+		);
 		writeFileSync(join(cwd, "package.json"), JSON.stringify({ type: "module", private: true }));
 		execFileSync(
 			process.execPath,
@@ -77,6 +98,8 @@ try {
 				timeout: 180_000,
 				env: {
 					...process.env,
+					// Each matched host must resolve its own theme assets, not the caller's Pi root.
+					PI_PACKAGE_DIR: undefined,
 					PI_CODING_AGENT_DIR: agentDir,
 					PI_OFFLINE: "1",
 					PI_SKIP_VERSION_CHECK: "1",
