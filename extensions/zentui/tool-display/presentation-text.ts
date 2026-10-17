@@ -4,20 +4,39 @@ import { boundedContentLines, boundedWrap, safeWidth } from "./bounds.js";
 export class PresentationText extends Text {
 	private source: string;
 	private safetyRows = 20_000;
+	private layout?: { width: number; lines: string[] };
 	constructor(text = "", paddingX = 0, paddingY = 0) {
 		super(text, paddingX, paddingY);
 		this.source = text;
 	}
 	setText(text: string): void {
+		this.layout = undefined;
 		this.source = text;
 		super.setText(text);
 	}
 	setSafetyRows(rows: number): void {
-		this.safetyRows = Math.max(1, Math.min(20_000, rows));
+		const next = Math.max(1, Math.min(20_000, rows));
+		if (next === this.safetyRows) return;
+		this.safetyRows = next;
+		this.layout = undefined;
+	}
+	setCustomBgFn(customBgFn?: (text: string) => string): void {
+		this.layout = undefined;
+		super.setCustomBgFn(customBgFn);
+	}
+	invalidate(): void {
+		this.layout = undefined;
+		super.invalidate();
+	}
+	private rememberLayout(width: number, lines: string[]): string[] {
+		this.layout = { width, lines };
+		return lines.slice();
 	}
 	render(rawWidth: number): string[] {
 		const width = safeWidth(rawWidth);
 		if (!width) return [];
+		// Cache only after safety validation; setters and host invalidation clear it.
+		if (this.layout?.width === width) return this.layout.lines.slice();
 		const input = boundedContentLines(this.source, 20_000);
 		const wrapped: string[] = [];
 		let capped = input.capped;
@@ -32,16 +51,22 @@ export class PresentationText extends Text {
 		}
 		if (!capped) {
 			super.setText(this.source);
-			return super
-				.render(width)
-				.map((line) => (visibleWidth(line) > width ? truncateToWidth(line, width, "") : line));
+			return this.rememberLayout(
+				width,
+				super
+					.render(width)
+					.map((line) => (visibleWidth(line) > width ? truncateToWidth(line, width, "") : line)),
+			);
 		}
 		const shown = wrapped.slice(0, this.safetyRows);
 		super.setText(
 			`${shown.join("\n")}\n${truncateToWidth("… (preview output omitted)", width, "")}`,
 		);
-		return super
-			.render(width)
-			.map((line) => (visibleWidth(line) > width ? truncateToWidth(line, width, "") : line));
+		return this.rememberLayout(
+			width,
+			super
+				.render(width)
+				.map((line) => (visibleWidth(line) > width ? truncateToWidth(line, width, "") : line)),
+		);
 	}
 }

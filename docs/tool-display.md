@@ -178,6 +178,13 @@ survive source/render boundaries and unlimited expansion. Ordinary terminal
 LF/blank meta rows retain upstream presentation. Omitted-row counts are lower
 bounds when unrendered lines could wrap.
 
+Tool text keeps one completed, safety-checked layout per component at its most
+recent normalized width. Unchanged paints reuse it and return fresh row arrays.
+Text updates (even identical text), changed safety budgets, padding/background
+setters, and explicit `invalidate()` clear the cache. Theme-dependent background
+callbacks must be invalidated when their captured theme changes. Failed renders
+are not cached; safety caps and omission notices remain unchanged.
+
 ## Ownership and advanced JSON
 
 `registerToolOverrides` contains independent eligibility booleans for `read`,
