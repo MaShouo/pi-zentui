@@ -178,6 +178,13 @@ survive source/render boundaries and unlimited expansion. Ordinary terminal
 LF/blank meta rows retain upstream presentation. Omitted-row counts are lower
 bounds when unrendered lines could wrap.
 
+Tool text keeps one completed, safety-checked layout per component at its most
+recent normalized width. Unchanged paints reuse it and return fresh row arrays.
+Text updates (even identical text), changed safety budgets, padding/background
+setters, and explicit `invalidate()` clear the cache. Theme-dependent background
+callbacks must be invalidated when their captured theme changes. Failed renders
+are not cached; safety caps and omission notices remain unchanged.
+
 ## Ownership and advanced JSON
 
 `registerToolOverrides` contains independent eligibility booleans for `read`,
@@ -272,6 +279,9 @@ has delegated to its predecessor stays delegated for its remaining lifetime,
 including partial-to-final delivery, to preserve predecessor cleanup. The actual
 predecessor call/result components and their invalidation are retained separately;
 callbacks run when the host supplies an update, even if the row is not painted.
+An owned row's content is rebuilt from those callbacks, not from paint, so a host
+that rewrites tool arguments or results in place without a callback is only
+repainted, not re-rendered.
 Ownership changes take effect on an existing row at its next host callback or
 rebuild, not merely on paint. A paint-time preview failure displays a bounded
 notice and delegates on the next host update. Newly owned rows acquire the upstream default native card shell. Existing owned

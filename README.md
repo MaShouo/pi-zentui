@@ -1,6 +1,6 @@
 # Sakura Cyberdeck
 
-A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.31.0. Sakura Cyberdeck v3 requires Pi 1.0.0 or newer.
+A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.31.2. Sakura Cyberdeck v3 requires Pi 1.0.0 or newer.
 
 This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, focused gradient accents, quiet tool cards, and thinking trails.
 
@@ -234,7 +234,7 @@ Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, fold
 
 Pi provides a native fullscreen TUI with a sticky editor and Footer. Zentui does not change Pi's TUI mode. Pi 1.0 defaults to fullscreen; use `--tui-mode regular` to keep terminal scrollback. The upstream compatibility matrix covers exact Pi versions 1.0.0 and 1.0.3.
 
-**Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
+**Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` (polled) and official `openai` sign-in (from response headers) through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
 
 Minimalist can also show the latest assistant prompt's cache hit rate in its top-right metadata. Enable **Editor → Minimalist → Cache hit rate** or set `components.editor.styles.minimalist.showCacheHit` to `true`; it is off by default and does not depend on Footer.
 

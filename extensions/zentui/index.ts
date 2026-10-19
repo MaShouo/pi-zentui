@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import { CodexQuotaCollector, editorWantsCodexQuota } from "./codex-quota";
+import { CodexHeaderQuota } from "./codex-quota-headers";
 import { componentColor } from "./component-colors";
 import {
 	type AccentRailEditorStyleConfig,
@@ -247,18 +248,27 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				}
 			: config;
 	let currentConfig: PolishedTuiConfig = scopeConfig(structuredClone(defaultConfig));
-	const toolDisplay = createToolDisplayController(
-		host.skinOnly ? {} : pi,
-		() => ({
+	// The controller treats a changed identity as "a save needs a rebuild".
+	let toolDisplayConfigKey: PolishedTuiConfig | undefined;
+	let toolDisplayConfigCurrent = false;
+	let toolDisplayConfigValue: ZentuiConfig["components"]["toolDisplay"] | undefined;
+	const toolDisplayConfig = () => {
+		const current = sessionLifecycle.isCurrent();
+		if (toolDisplayConfigKey === currentConfig && toolDisplayConfigCurrent === current)
+			return toolDisplayConfigValue as ZentuiConfig["components"]["toolDisplay"];
+		toolDisplayConfigKey = currentConfig;
+		toolDisplayConfigCurrent = current;
+		toolDisplayConfigValue = {
 			...currentConfig.components.toolDisplay,
-			enabled: sessionLifecycle.isCurrent() && currentConfig.components.toolDisplay.enabled,
-		}),
-		{
-			nativeRenderers: host.skinOnly ? {} : nativeToolRenderers(process.cwd()),
-			pending: new PendingPreimages(),
-			highlighter: host.skinOnly ? undefined : toolDisplayHighlighter,
-		},
-	);
+			enabled: current && currentConfig.components.toolDisplay.enabled,
+		};
+		return toolDisplayConfigValue;
+	};
+	const toolDisplay = createToolDisplayController(host.skinOnly ? {} : pi, toolDisplayConfig, {
+		nativeRenderers: host.skinOnly ? {} : nativeToolRenderers(process.cwd()),
+		pending: new PendingPreimages(),
+		highlighter: host.skinOnly ? undefined : toolDisplayHighlighter,
+	});
 	// Register one neutral resolver before transcript restoration; the live getter is
 	// reloaded synchronously on session_start. No execution registration is replaced.
 	if (!host.skinOnly) toolDisplay.install();
@@ -408,6 +418,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		customVariables.reconcile();
 		summaryRate.reconcile(summaryEnabled());
 		codexQuota.reconcile();
+		codexHeaderQuota.reconcile();
 		reconcileLiveMetadata();
 		requestFooterRender?.();
 		requestEditorRepaint();
@@ -627,11 +638,27 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			requestEditorRepaint();
 		},
 	);
-	const getEditorQuota = () =>
-		currentConfig.components.editor.codexQuota &&
-		activeTuiContext?.model?.provider === "openai-codex"
+	const codexHeaderQuota = new CodexHeaderQuota(
+		() => {
+			const ctx = activeTuiContext;
+			return ctx && sessionLifecycle.isCurrent() && isTuiContext(ctx) ? ctx : undefined;
+		},
+		() => {
+			if (!sessionLifecycle.isCurrent()) return;
+			requestFooterRender?.();
+			requestEditorRepaint();
+		},
+	);
+	const getCodexQuota = () => {
+		const provider = activeTuiContext?.model?.provider;
+		return provider === "openai-codex"
 			? codexQuota.get()
-			: undefined;
+			: provider === "openai"
+				? codexHeaderQuota.get()
+				: undefined;
+	};
+	const getEditorQuota = () =>
+		currentConfig.components.editor.codexQuota ? getCodexQuota() : undefined;
 
 	type ProjectRefreshTarget = {
 		context: ExtensionContext;
@@ -1405,7 +1432,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				getHostTemplateValues: (names) =>
 					liveMetadata.read(names, host.getHostTemplateValues?.(ctx, names)),
 				getLiveContext: () => liveContext.get(),
-				getCodexQuota: () => codexQuota.get(),
+				getCodexQuota,
 				getCustomVariables: () => customVariables.snapshot(),
 				getRepositoryRoot: (cwd) => repositoryRoots.cachedRootForCwd(cwd),
 				onDispose: () => clearFooterOwnership(ctx, token),
@@ -1607,6 +1634,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		layeredEditor.detach();
 		extensionStatuses.dispose();
 		codexQuota.stop();
+		codexHeaderQuota.clear();
 		stopSessionTimer();
 		resetAgentTimer();
 		stopProjectRefresh();
@@ -1662,6 +1690,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		liveMetadata.dispose();
 		liveMetadata = createLiveMetadata();
 		codexQuota.stop();
+		codexHeaderQuota.clear();
 		usageTotals.invalidate();
 		footerTelemetry.reset();
 		customVariableSessionReady = false;
@@ -2016,6 +2045,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		// Reconcile once more after Pi has persisted the assistant message.
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
+	pi.on("after_provider_response", (event) => codexHeaderQuota.record(event.headers));
 	pi.on("model_select", (event, ctx) => {
 		clearTokenRate();
 		liveContext.clear();
