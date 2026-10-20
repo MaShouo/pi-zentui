@@ -247,6 +247,8 @@ describe("independent extension status lifecycle", () => {
 			expect(rows).toContain("Native uses Pi's layout");
 			h.change("off placement"); // Right -> Off, ignoring dormant Starship Off when displaying
 			expect(raw().components.extensionStatuses.visibility).toEqual({ off: "hide" });
+			// Off clears only the current mode's placement: Native owns none, so the dormant
+			// Starship preference survives and the per-key Hide hides the status everywhere.
 			expect(raw().components.footer.styles.starship.extensionStatuses.placements).toEqual({
 				off: "off",
 			});
@@ -268,6 +270,26 @@ describe("independent extension status lifecycle", () => {
 			expect(raw().components.extensionStatuses.hidden).toEqual(hidden);
 			expect(raw().components.footer).toMatchObject({ style: "native", enabled: false });
 			expect(h.ctx.ui.setFooter).not.toHaveBeenCalled();
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+
+	it("keeps a per-key hidden status out of the Starship footer despite a positive placement", async () => {
+		const h = setup("starship");
+		const saved = raw();
+		saved.components.footer.styles.starship.extensionStatuses.placements = {
+			"pi-cache-stats": "right",
+		};
+		saved.components.extensionStatuses = { visibility: { "pi-cache-stats": "hide" } };
+		writeFileSync(disk.path, JSON.stringify(saved));
+		await h.emit("session_start");
+		try {
+			// Publish past the best-effort suppression to prove the render filter hides the key.
+			h.provider.set("pi-cache-stats", "CACHE 42%");
+			expect(h.footer()?.render(200).join("\n")).not.toContain("CACHE 42%");
+			await h.open("extensions");
+			expect(stripVTControlCharacters(h.rows())).toMatch(/pi-cache-stats placement\s+Off/);
 		} finally {
 			await h.emit("session_shutdown");
 		}
@@ -379,7 +401,6 @@ describe("independent extension status lifecycle", () => {
 			for (let i = 0; i < 3; i++) h.change("r placement"); // Left -> Off
 			expect(raw().components.extensionStatuses.hidden.placements).toEqual({
 				l: "left",
-				r: "right",
 			});
 			expect(h.footer()?.render(21)).toEqual(["L M"]);
 			const hidden = raw().components.extensionStatuses.hidden;

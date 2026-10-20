@@ -1789,18 +1789,30 @@ export function mergeConfig(
 	return view;
 }
 
+/**
+ * Starship placement for one status key. Per-key visibility owns the outcome:
+ * a hidden key is off regardless of its placement, an explicit show wins over the
+ * global default, and a global Hide hides inherited keys. Mirrors the
+ * `/zentui extensions` panel read path so the panel never claims a choice the
+ * Starship footer does not render.
+ */
 export function getExtensionStatusPlacement(
 	config: ZentuiConfig,
 	key: string,
 ): ExtensionStatusPlacement {
+	const policy = config.components.extensionStatuses;
+	const visibility = Object.hasOwn(policy.visibility, key) ? policy.visibility[key] : undefined;
 	const statuses = config.components.footer.styles.starship.extensionStatuses;
-	if (Object.hasOwn(statuses.placements, key)) {
-		const placement = statuses.placements[key];
-		if (isExtensionStatusPlacement(placement)) return placement;
-	}
-	return isExtensionStatusPlacement(statuses.defaultPlacement)
+	const placed = Object.hasOwn(statuses.placements, key) ? statuses.placements[key] : undefined;
+	const fallback = isExtensionStatusPlacement(statuses.defaultPlacement)
 		? statuses.defaultPlacement
 		: DEFAULT_EXTENSION_STATUS_PLACEMENT;
+	if (visibility === "hide") return "off";
+	if (placed === "off") return "off";
+	const position = isExtensionStatusPlacement(placed) ? placed : undefined;
+	if (visibility === "show") return position ?? fallback;
+	if (policy.defaultVisibility === "hide") return "off";
+	return position ?? fallback;
 }
 
 export function getExtensionStatusColorMode(
@@ -2810,7 +2822,12 @@ export function saveExtensionStatusDefaultChoice(
 	});
 }
 
-/** Default removes both visibility and current-mode placement, shadowing legacy Starship maps. */
+/**
+ * Default removes both visibility and current-mode placement, shadowing legacy Starship maps.
+ * Off removes the current-mode placement as well: a hidden key never renders, so a stale
+ * positive placement would only mask the choice later. Every other mode keeps its own
+ * saved placement, so one mode's choice never rewrites another mode's preferences.
+ */
 export function saveExtensionStatusChoice(
 	key: string,
 	choice: ExtensionStatusChoice,
@@ -2823,33 +2840,44 @@ export function saveExtensionStatusChoice(
 		const hidden = recordValue(owner.hidden);
 		const starship = recordValue(recordValue(recordValue(components.footer).styles).starship);
 		const canonicalStatuses = recordValue(starship.extensionStatuses);
+		const removeHiddenPlacement = () => {
+			delete recordValue(hidden.placements)[key];
+		};
+		const removeStarshipPlacement = () => {
+			// An empty canonical map must remain to prevent top-level legacy fallback.
+			const placements = {
+				...recordValue(
+					Object.hasOwn(canonicalStatuses, "placements")
+						? canonicalStatuses.placements
+						: recordValue(record.extensionStatuses).placements,
+				),
+			};
+			delete placements[key];
+			record.components = overlayKnown(record.components, {
+				footer: { styles: { starship: { extensionStatuses: { placements: {} } } } },
+			});
+			const footer = recordValue(recordValue(record.components).footer);
+			const savedStarship = recordValue(recordValue(footer.styles).starship);
+			recordValue(savedStarship.extensionStatuses).placements = placements;
+		};
 		if (choice === "default") {
 			delete recordValue(owner.visibility)[key];
-			if (style === "hidden") {
-				delete recordValue(hidden.placements)[key];
-			} else {
-				// An empty canonical map must remain to prevent top-level legacy fallback.
-				const placements = {
-					...recordValue(
-						Object.hasOwn(canonicalStatuses, "placements")
-							? canonicalStatuses.placements
-							: recordValue(record.extensionStatuses).placements,
-					),
-				};
-				delete placements[key];
-				record.components = overlayKnown(record.components, {
-					footer: { styles: { starship: { extensionStatuses: { placements: {} } } } },
-				});
-				const footer = recordValue(recordValue(record.components).footer);
-				const savedStarship = recordValue(recordValue(footer.styles).starship);
-				recordValue(savedStarship.extensionStatuses).placements = placements;
-			}
+			// Default resumes inheritance in the current mode; Native also drops the dormant
+			// Starship map so a legacy top-level map cannot leak back in.
+			if (style === "hidden") removeHiddenPlacement();
+			else removeStarshipPlacement();
 			return;
 		}
 		record.components = overlayKnown(record.components, {
 			extensionStatuses: { visibility: { [key]: choice === "off" ? "hide" : "show" } },
 		});
-		if (choice === "off") return;
+		if (choice === "off") {
+			// Off clears only the current mode's placement. The per-key Hide already wins at
+			// render time, so another mode's saved placement stays untouched.
+			if (style === "hidden") removeHiddenPlacement();
+			else if (style === "starship") removeStarshipPlacement();
+			return;
+		}
 		if (style === "hidden") {
 			record.components = overlayKnown(record.components, {
 				extensionStatuses: { hidden: { placements: { [key]: choice } } },
