@@ -94,6 +94,19 @@ describe("Sakura rounded editor frame", () => {
 		).toBe("─".repeat(60));
 	});
 
+	it.each(["nerd", "ascii"])("honors owner rail overrides in Sakura %s mode", (mode) => {
+		for (const glyph of ["┃", "▌", "|"]) {
+			const config = mergeConfig({ icons: { mode }, components: { editor: { rail: glyph } } }, {});
+			const lines = render(60, config).map(stripVTControlCharacters);
+			expect(lines[0]).toBe("─".repeat(60));
+			for (const line of lines.slice(1, -1)) {
+				expect(line.startsWith(`${glyph} `)).toBe(true);
+				expect(line.endsWith(` ${glyph}`)).toBe(true);
+				expect(visibleWidth(line)).toBe(60);
+			}
+		}
+	});
+
 	it("fails open rather than nesting a copied predecessor frame", () => {
 		const config = mergeConfig({}, {});
 		const cached = render(60, config);

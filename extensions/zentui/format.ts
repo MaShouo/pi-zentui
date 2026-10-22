@@ -8,14 +8,14 @@ import type {
 	ContextThresholds,
 	GitBranchMaxLength,
 	PathDisplayMode,
-} from "./config";
-import type { GitCommitInfo, GitMetricsInfo } from "./git";
-import { renderMacaronGauge } from "./gradient";
-import type { IconMode } from "./icons";
-import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons";
-import type { PackageVersionResult } from "./package-version";
-import type { RuntimeInfo } from "./runtime";
-import { renderStyleForSource } from "./style";
+} from "./config.ts";
+import type { GitCommitInfo, GitMetricsInfo } from "./git.ts";
+import { renderMacaronGauge } from "./gradient.ts";
+import type { IconMode } from "./icons.ts";
+import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons.ts";
+import type { PackageVersionResult } from "./package-version.ts";
+import type { RuntimeInfo } from "./runtime.ts";
+import { renderStyleForSource } from "./style.ts";
 
 /**
  * Classify a prompt input as normal (`""`), a `!`-prefixed shell command

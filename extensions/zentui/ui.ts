@@ -10,36 +10,44 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor";
-import type { CodexQuota } from "./codex-quota";
-import { renderCodexQuota } from "./codex-quota-display";
-import { omitTrailingNativeCompletionCountRow, renderCompletionPalette } from "./completion-menu";
-import { componentColor, editorShellColor } from "./component-colors";
-import type { EditorStyle, ZentuiConfig } from "./config";
+import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor.ts";
+import type { CodexQuota } from "./codex-quota.ts";
+import { renderCodexQuota } from "./codex-quota-display.ts";
+import {
+	omitTrailingNativeCompletionCountRow,
+	renderCompletionPalette,
+} from "./completion-menu.ts";
+import { componentColor, editorShellColor } from "./component-colors.ts";
+import type { EditorStyle, ZentuiConfig } from "./config.ts";
 import {
 	type EditorMetadataZones,
 	renderEditorMetadataFormatSplit,
 	sanitizeEditorMetadataText,
-} from "./editor-metadata-format";
+} from "./editor-metadata-format.ts";
 import {
 	EditorMouseForwarder,
 	type EditorMouseHandler,
 	editorMouseCells,
 	rememberEditorMouseLayout,
-} from "./editor-mouse";
-import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
-import { bashModeLabel } from "./format";
-import { isSakuraMacaronVisuals, renderSakuraFrameGradient, renderSakuraSolid } from "./gradient";
-import type { HostTemplateValues } from "./host-template-values";
-import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
-import { minimalistTemplateReferences } from "./minimalist-template";
-import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame";
+} from "./editor-mouse.ts";
+import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format.ts";
+import { bashModeLabel } from "./format.ts";
+import {
+	isSakuraMacaronVisuals,
+	renderSakuraFrameGradient,
+	renderSakuraSolid,
+} from "./gradient.ts";
+import type { HostTemplateValues } from "./host-template-values.ts";
+import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor.ts";
+import { minimalistTemplateReferences } from "./minimalist-template.ts";
+import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame.ts";
+import { resolveEditorFrameRailGlyph } from "./rail-glyph.ts";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallback,
 	safeThemeFg,
-} from "./style";
+} from "./style.ts";
 
 // Reserve at least four label cells beside Minimalist metadata.
 const MIN_WORKING_LINE_BORDER_WIDTH = 16;
@@ -433,7 +441,10 @@ function usesRoundedEditorFrame(config: ZentuiConfig, uiTheme: Theme): boolean {
 	return (
 		config.components.editor.style === "opencode" &&
 		config.icons.mode !== "ascii" &&
-		(config.icons.rail === "|" || config.icons.rail === "│") &&
+		(resolveEditorFrameRailGlyph(config) === "│" ||
+			(resolveEditorFrameRailGlyph(config) === "|" &&
+				config.components.editor.rail === undefined &&
+				config.components.editor.asciiRail === undefined)) &&
 		isSakuraMacaronVisuals(componentColor(config, "editor", "border"), uiTheme)
 	);
 }
@@ -446,7 +457,9 @@ function getEditorChromeWidths(
 ) {
 	const lowRail = isLowRailPolishedStyle(config.components.editor.style);
 	// Auto may choose ASCII icons, but box drawing does not require a Nerd Font.
-	const railGlyph = usesRoundedEditorFrame(config, uiTheme) ? "│" : config.icons.rail;
+	const railGlyph = usesRoundedEditorFrame(config, uiTheme)
+		? "│"
+		: resolveEditorFrameRailGlyph(config);
 	const prompt = lowRailPrompt(config, uiTheme, reset);
 	const chromeColor = shellMode
 		? editorShellColor(config)
@@ -462,7 +475,7 @@ function getEditorChromeWidths(
 			)}${reset} `;
 	const rightRail =
 		!lowRail &&
-		config.icons.rail.length > 0 &&
+		railGlyph.length > 0 &&
 		isSakuraMacaronVisuals(componentColor(config, "editor", "border"), uiTheme)
 			? ` ${renderSakuraSolid(railGlyph)}`
 			: "";

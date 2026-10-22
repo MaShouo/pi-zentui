@@ -1,9 +1,14 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import { fgAnsi } from "../shared/color";
-import { renderSakuraSolid, rgbForeground, SAKURA_BORDER_RGB, SAKURA_MUTED_RGB } from "./gradient";
-import { installPrototypePatch } from "./prototype-patch-registry";
+import { fgAnsi } from "../shared/color.ts";
+import {
+	renderSakuraSolid,
+	rgbForeground,
+	SAKURA_BORDER_RGB,
+	SAKURA_MUTED_RGB,
+} from "./gradient.ts";
+import { installPrototypePatch } from "./prototype-patch-registry.ts";
 
 type Cleanup = () => void;
 type AssistantContent = {

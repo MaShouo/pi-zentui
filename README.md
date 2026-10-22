@@ -1,6 +1,6 @@
 # Sakura Cyberdeck
 
-A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.31.2. Sakura Cyberdeck v3 requires Pi 1.0.0 or newer.
+A Sakura Macaron visual pack for [Pi](https://pi.dev), built on Zentui v0.32.0. Sakura Cyberdeck v3 requires Pi 1.0.0 or newer.
 
 This package keeps Zentui's editor, user-message, footer, and configuration capabilities while adding a cohesive Sakura theme, startup header, Matrix widget, Claude-style shimmer, focused gradient accents, quiet tool cards, and thinking trails.
 
@@ -155,7 +155,7 @@ OMP also exposes opt-in [template data](./docs/configuration.md#omp-template-dat
 
 Sakura visuals follow the bundled `sakura-macaron` theme. Gradients frame the Header, current Editor, and User messages; by default, selectors and tool cards use quiet borders. The Footer directory is solid sakura, separators use the quiet border color, and its gauge is static between state changes. Set `components.editor.colors.border`, `components.userMessages.colors.border`, or `components.selectorBorders.colors.border` to the existing `sakura-macaron-gradient` marker to opt into gradient frames on that surface, with this theme or another; set an ordinary border color to override the Sakura treatment on that surface. Shared `colors.editorBorder` remains a legacy Editor/User-message fallback and the marker for Sakura transcript and Footer accents.
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Tool display, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or saved Starship placement/color preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Tool display, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or other keys' saved Starship placement/color preferences. Per-key Off hides that status in every Footer style, including Starship, and clears the key's placement in the current mode only, leaving other modes' saved placements untouched. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
 ~/.pi/agent/zentui.json
@@ -191,6 +191,19 @@ Change only what you need. For example, this changes only the Editor's accent:
 ```
 
 Each owner's **Color overrides** action edits raw styles independently. **Reset / inherit** deletes the local key; an empty string intentionally removes styling. Shared `colors` remain live historical fallbacks before **and after** migration. Color sources remain independent too.
+
+The vertical rail glyph is configurable per surface as well. `components.editor.rail` owns the editor rail and `components.userMessages.rail` owns the rail of previous messages; neither rewrites the other:
+
+```json
+{
+  "components": {
+    "editor": { "rail": "┃" },
+    "userMessages": { "rail": "▌" }
+  }
+}
+```
+
+Common glyphs are `│`, `┃`, `▎`, `▌`, and `|`. Each glyph must fit one terminal cell; unusable values fall back to the owner's default. `components.editor.asciiRail` and `components.userMessages.asciiRail` override the same rail while the effective icon mode is `ascii`. `/zentui` exposes the same choice as **Rail glyph** in the Editor and User messages sections. See [Rail glyphs](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#rail-glyphs).
 
 To adopt **only User messages**, explicitly leave the other default-enabled surfaces alone:
 

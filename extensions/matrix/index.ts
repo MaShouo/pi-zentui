@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getColorMode, paintFg, type RGB, syncColorMode } from "../shared/color";
+import { getColorMode, paintFg, type RGB, syncColorMode } from "../shared/color.ts";
 
 export const MATRIX_WIDGET_KEY = "sakura-matrix";
 export const CONFIG_PATH = join(homedir(), ".pi", "agent", "sakura-cyberdeck-matrix.json");

@@ -133,7 +133,7 @@ Selecting presets keeps the settings panel open and preserves its focus. Config,
 
 ### Extension-status visibility
 
-`/zentui extensions` is available with Native, Hidden, or Starship Footer. It shows **Default placement**, then each observed or saved extension's **placement** and **color** (Original, Zentui). Both placement controls offer only Left, Middle, Right, Off, in that order. No separate visibility rows or mode prefixes are shown. Unset or inherited placements display their effective position or Off, not a selectable Default value. Off hides statuses via `components.extensionStatuses`; a positive per-extension placement explicitly shows that key even when the default is Off. Choices save atomically; merely opening the panel does not rewrite config:
+`/zentui extensions` is available with Native, Hidden, or Starship Footer. It shows **Default placement**, then each observed or saved extension's **placement** and **color** (Original, Zentui). Both placement controls offer only Left, Middle, Right, Off, in that order. No separate visibility rows or mode prefixes are shown. Unset or inherited placements display their effective position or Off, not a selectable Default value. Off hides statuses via `components.extensionStatuses`. A positive per-extension placement saves a matching Show, which shows that key even when the default is Off; a placement saved without a Show override still inherits a global Off. Choosing Off stores `visibility: "hide"` for that key and clears the current mode's placement, so a stale position cannot revive a hidden status. Other modes keep their own saved placements. Choices save atomically; merely opening the panel does not rewrite config:
 
 ```json
 {
@@ -146,7 +146,7 @@ Selecting presets keeps the settings panel open and preserves its focus. Config,
 }
 ```
 
-Off suppresses observed publications through Pi's public `setStatus` method. A visible choice passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors by default and Pi's key ordering within each placement, with safe single-line text and width truncation. Default Off hides inherited keys; per-key Off hides that key. No remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. Starship placement/color preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Native positive placements save dormant Starship preferences and Show visibility but never move Pi's native statuses. Historical Starship `off` settings never become global Off in Native or Hidden.
+Off suppresses observed publications through Pi's public `setStatus` method. A visible choice passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors by default and Pi's key ordering within each placement, with safe single-line text and width truncation. Default Off hides inherited keys; per-key Off hides that key. Both apply to the Starship footer as well: a per-key `hide` wins over any positive Starship placement, and a global Off hides inherited keys there too. The panel always shows the choice that actually renders, so Off is never displayed while the status keeps rendering. No remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. Starship placement/color preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Native positive placements save dormant Starship preferences and Show visibility but never move Pi's native statuses. Historical Starship `off` settings never become global Off in Native or Hidden.
 
 With Hidden selected, default placement starts at Left. To restore inheritance in config, remove the key's visibility and Hidden placement overrides; its color can remain saved. These sparse preferences live in `components.extensionStatuses.hidden`, independently of Starship and visibility:
 
@@ -448,7 +448,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden hides its main segments, retaining only allowed extension statuses; an empty status line occupies no rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
-- `components.extensionStatuses` independently controls Show/Hide for observed `ctx.ui.setStatus()` publications. It also owns Hidden-only placement under `hidden`; Starship retains its own placement and color modes.
+- `components.extensionStatuses` independently controls Show/Hide for observed `ctx.ui.setStatus()` publications. It also owns Hidden-only placement under `hidden`; Starship retains its own placement and color modes. A per-key Hide wins over any positive Starship placement.
 - Editor, User messages, Footer, selector borders, and Working line default to `terminal` colors. Explicit saved `theme` choices remain unchanged. Omit optional `editor*` overrides to preserve source-aware defaults.
 
 ### Codex account quota
@@ -540,12 +540,51 @@ Role-specific defaults and chains remain intact:
 - Minimalist's built-in `Cache NN%` label and `$cache_hit` use Editor `cacheHit` → optional shared `colors.cacheHit` → Editor `contextNormal` (local, then shared/default). The normal tier stays stable even at warning/error context usage. Configure it through `/zentui` → Editor → **Color overrides** → `cacheHit`; **Reset / inherit** resumes the chain. The selected Editor color source applies throughout; no cache-hit palette is generated or saved, and other owners are unchanged.
 - Thinking levels use their level key then generic `thinking`; Max uses `thinkingMax → thinkingXhigh → thinking`. Static metadata and adaptive borders retain their existing distinct fallback behavior; theme-adaptive borders still defer to Pi's thinking-border callback.
 - Working-line defaults remain theme `dim`, `muted`, `bold accent`, or terminal `bright-black`, `cyan`, `bold cyan`. Both animated rows and summaries consume local overrides. New persisted Turn summaries snapshot the effective high style; when no safe SGR prefix exists (including an unstyled high override), they retain the safe bold-cyan substitute. Existing persisted summaries keep their recorded style; legacy version-1 summaries use current high styling.
+- `components.editor.rail` and `components.userMessages.rail` own the vertical rail glyph of their own surface; neither owner rewrites the other. See [Rail glyphs](#rail-glyphs).
+
+## Rail glyphs
+
+The vertical rail drawn beside the editor input and beside previous user messages is a configurable character. Each owner keeps its own choice, so changing one never rewrites the other.
+
+| Owner | Key | Applies to |
+| --- | --- | --- |
+| Editor | `components.editor.rail` | Editor styles that draw a rail (Opencode, Accent Rail), in every icon mode |
+| Editor | `components.editor.asciiRail` | Overrides the same rail while the effective icon mode is `ascii` |
+| User messages | `components.userMessages.rail` | `framed` and `compact` previous-message styles, in every icon mode |
+| User messages | `components.userMessages.asciiRail` | Overrides the same rail while the effective icon mode is `ascii` |
+
+```json
+{
+  "components": {
+    "editor": { "rail": "┃", "asciiRail": "|" },
+    "userMessages": { "rail": "▌", "asciiRail": "|" }
+  }
+}
+```
+
+Common glyphs are `│` (light vertical), `┃` (heavy vertical), `▎` (left one-quarter block), `▌` (left half block), and `|` (ASCII pipe). Block glyphs fill the whole cell, so they keep the rail connected between rows in terminals that draw thin box characters shorter than the line box.
+
+A configured glyph must occupy exactly one terminal cell. Terminal control sequences are stripped, surrounding whitespace is ignored, longer values are cut to their first cell, and values that cannot be drawn as one cell (wide characters, empty or blank strings) are ignored so the owner's default is used instead of breaking the layout.
+
+`/zentui` exposes the same choices as **Rail glyph** in the Editor and User messages sections. **Default** removes the override and resumes inheritance. The settings control writes both the Nerd and ASCII variants, so the chosen glyph is used in every icon mode.
+
+Each owner has one canonical rail plus an optional ASCII-icon-mode override, mirroring the Accent Rail style's own `rail` / `asciiRail` pair: `rail` applies in every icon mode, and `asciiRail` replaces it while the effective icon mode is `ascii`. An explicit choice therefore keeps working on terminals that the `auto` icon mode resolves to ASCII; set `asciiRail` as well when the ASCII mode needs a different glyph.
+
+Unset keys inherit, in this order:
+
+- Editor, Opencode style: the canonical glyph, then the shared `icons.rail`.
+- Editor, Accent Rail style: the canonical glyph, then the style's own `components.editor.styles["accent-rail"].rail` (its `asciiRail` in ASCII icon mode), then that style's built-in default (`▎`, or `|` in ASCII icon mode).
+- User messages: the canonical glyph, then the shared `icons.rail`.
+
+`icons.rail` stays a shared historical fallback for both owners; it is not a per-component setting. Prefer the owner keys above when only one surface should change. The new keys are absent from the default configuration.
+
+Minimalist draws a full box frame rather than a rail, so the rail keys leave its border untouched. The `opencode-copy-friendly` editor style draws no rail column either. `framed-copy-friendly` and `labeled` messages draw a box as well and keep their own borders.
 
 ## Editor styles
 
 ### Accent Rail
 
-Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
+Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. A configured `components.editor.rail` overrides the style-owned glyph for every editor style that draws a rail; `components.editor.asciiRail` replaces it in ASCII icon mode. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
@@ -808,6 +847,7 @@ Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $fast
 - `framed-copy-friendly` keeps full-width horizontal borders and spacer rows, removes the copied rail, and retains a one-cell leading gutter.
 - `compact` uses only an accent rail with no surrounding border or padding rows.
 - `labeled` uses a rounded box with fixed label `User`.
+- The rail of `framed` and `compact` follows `components.userMessages.rail` (or `asciiRail` in ASCII mode) and is independent of the editor rail.
 - Disabling styling delegates to Pi's native renderer; native is not a style ID.
 - Zentui intentionally provides no custom `plain` style.
 

@@ -5,15 +5,15 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { getColorMode, syncColorMode } from "../shared/color";
+import { getColorMode, syncColorMode } from "../shared/color.ts";
 import {
 	rgbForeground as paintFg,
 	type RGB,
 	SAKURA_BORDER_RGB,
 	SAKURA_ERROR_RGB,
 	SAKURA_MUTED_RGB,
-} from "./gradient";
-import { installPrototypePatch } from "./prototype-patch-registry";
+} from "./gradient.ts";
+import { installPrototypePatch } from "./prototype-patch-registry.ts";
 
 /**
  * Tool card chrome: quiet border and status title + status rail around Pi's own tool rendering.

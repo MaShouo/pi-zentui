@@ -5,14 +5,14 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
-import { CodexQuotaCollector, editorWantsCodexQuota } from "./codex-quota";
-import { CodexHeaderQuota } from "./codex-quota-headers";
-import { componentColor } from "./component-colors";
+import { CodexQuotaCollector, editorWantsCodexQuota } from "./codex-quota.ts";
+import { CodexHeaderQuota } from "./codex-quota-headers.ts";
+import { componentColor } from "./component-colors.ts";
 import {
 	type AccentRailEditorStyleConfig,
 	type ContextStyle,
 	defaultConfig,
-	type EditorComponentConfig,
+	type EditorComponentPatch,
 	type ExtensionStatusChoice,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
@@ -55,59 +55,59 @@ import {
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
 	type ThinkingStepsComponentConfig,
-	type UserMessagesComponentConfig,
+	type UserMessagesComponentPatch,
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
-} from "./config";
+} from "./config.ts";
 import {
 	editorDemandsCustomVariable,
 	editorMetadataReferences,
 	footerDemandsCustomVariable,
-} from "./custom-variable-demand";
-import { CustomVariables } from "./custom-variables";
+} from "./custom-variable-demand.ts";
+import { CustomVariables } from "./custom-variables.ts";
 import {
 	type EditorTransferFailureReason,
 	replaceEditorComponentWithExpandedText,
-} from "./editor-transfer";
-import { createExtensionStatusController } from "./extension-status-controller";
-import { installFooter, installHiddenFooter } from "./footer";
-import { compiledFooterFormat } from "./footer-format";
+} from "./editor-transfer.ts";
+import { createExtensionStatusController } from "./extension-status-controller.ts";
+import { installFooter, installHiddenFooter } from "./footer.ts";
+import { compiledFooterFormat } from "./footer-format.ts";
 import {
 	buildSessionDurationLabel,
 	EventUsageTotalsController,
 	resolveContextUsage,
-} from "./format";
-import { emptyGitStatus, readGitStatus } from "./git";
-import { isSakuraMacaronVisuals } from "./gradient";
-import type { HostTemplateValues } from "./host-template-values";
+} from "./format.ts";
+import { emptyGitStatus, readGitStatus } from "./git.ts";
+import { isSakuraMacaronVisuals } from "./gradient.ts";
+import type { HostTemplateValues } from "./host-template-values.ts";
 import {
 	createTurnSummaryData,
 	InteractionMetricsTracker,
 	renderTurnSummaryEntry,
 	TURN_SUMMARY_ENTRY_TYPE,
-} from "./interaction-summary";
-import { LayeredEditorConsumer } from "./layered-editor";
-import { LiveContextController } from "./live-context";
-import { LiveMetadataController } from "./live-metadata";
-import { editorHostReferences, liveMetadataDemand } from "./live-metadata-demand";
-import { readPackageVersionResult } from "./package-version";
-import { getComponentPreset } from "./presets";
-import { projectDemand } from "./project-demand";
-import { ProjectDiscovery } from "./project-discovery.js";
+} from "./interaction-summary.ts";
+import { LayeredEditorConsumer } from "./layered-editor.ts";
+import { LiveContextController } from "./live-context.ts";
+import { LiveMetadataController } from "./live-metadata.ts";
+import { editorHostReferences, liveMetadataDemand } from "./live-metadata-demand.ts";
+import { readPackageVersionResult } from "./package-version.ts";
+import { getComponentPreset } from "./presets.ts";
+import { projectDemand } from "./project-demand.ts";
+import { ProjectDiscovery } from "./project-discovery.ts";
 import {
 	createProjectRefreshScheduler,
 	type ProjectRefreshRun,
 	type ScheduleProjectRefreshOptions,
 	type StopProjectRefreshInterval,
 	startProjectRefreshInterval,
-} from "./project-refresh";
-import { applyProjectRefreshToState, projectStateSnapshot } from "./project-state";
-import { isProjectTrusted } from "./project-trust";
-import { RepositoryRootController, type RepositoryRootRequest } from "./repository-root";
-import { readRuntimeInfo } from "./runtime";
-import { installSelectorBorderStyle, removeSelectorBorderStyle } from "./selector-border";
-import { SessionLifecycle } from "./session-lifecycle";
-import { registerZentuiSettingsCommand } from "./settings-command";
+} from "./project-refresh.ts";
+import { applyProjectRefreshToState, projectStateSnapshot } from "./project-state.ts";
+import { isProjectTrusted } from "./project-trust.ts";
+import { RepositoryRootController, type RepositoryRootRequest } from "./repository-root.ts";
+import { readRuntimeInfo } from "./runtime.ts";
+import { installSelectorBorderStyle, removeSelectorBorderStyle } from "./selector-border.ts";
+import { SessionLifecycle } from "./session-lifecycle.ts";
+import { registerZentuiSettingsCommand } from "./settings-command.ts";
 import {
 	createInitialState,
 	type FooterState,
@@ -115,19 +115,19 @@ import {
 	syncModelState,
 	syncState,
 	syncUsageState,
-} from "./state";
-import { FooterTelemetryController } from "./telemetry";
-import { ThinkingExperimentalController } from "./thinking-experimental";
-import { installThinkingMessageStyle } from "./thinking-message";
-import { createToolDisplayController } from "./tool-display/controller";
-import { nativeToolRenderers, toolDisplayHighlighter } from "./tool-display/host";
-import { PendingPreimages } from "./tool-display/pending";
-import { installToolExecutionStyle } from "./tool-execution";
-import { TurnSummaryRateTracker } from "./turn-summary-rate";
-import { editorWantsContext, PolishedEditor, WrappedPolishedEditor } from "./ui";
-import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
-import { AgentDurationClock, WorkingLineController } from "./working-line";
-import { WorkingLineExtensionSegments } from "./working-line-extension-segments";
+} from "./state.ts";
+import { FooterTelemetryController } from "./telemetry.ts";
+import { ThinkingExperimentalController } from "./thinking-experimental.ts";
+import { installThinkingMessageStyle } from "./thinking-message.ts";
+import { createToolDisplayController } from "./tool-display/controller.ts";
+import { nativeToolRenderers, toolDisplayHighlighter } from "./tool-display/host.ts";
+import { PendingPreimages } from "./tool-display/pending.ts";
+import { installToolExecutionStyle } from "./tool-execution.ts";
+import { TurnSummaryRateTracker } from "./turn-summary-rate.ts";
+import { editorWantsContext, PolishedEditor, WrappedPolishedEditor } from "./ui.ts";
+import { installUserMessageStyle, removeUserMessageStyle } from "./user-message.ts";
+import { AgentDurationClock, WorkingLineController } from "./working-line.ts";
+import { WorkingLineExtensionSegments } from "./working-line-extension-segments.ts";
 
 const ZENTUI_EDITOR_FACTORY = Symbol.for("pi-zentui.editor-factory");
 const ZENTUI_EDITOR_BASE_FACTORY = Symbol.for("pi-zentui.editor-base-factory");
@@ -1805,7 +1805,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				reason: result && !result.ok ? result.reason : undefined,
 			};
 		},
-		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext, options) {
+		setEditorComponent(patch: EditorComponentPatch, ctx: ExtensionContext, options) {
 			currentConfig = scopeConfig(saveEditorComponentPatch(patch));
 			let result: EditorChangeResult | undefined;
 			if (patch.enabled !== undefined && isTuiContext(ctx) && !options?.deferEditor) {
@@ -1855,7 +1855,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			);
 			refresh();
 		},
-		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>, _ctx: ExtensionContext) {
+		setUserMessagesComponent(patch: UserMessagesComponentPatch, _ctx: ExtensionContext) {
 			currentConfig = scopeConfig(saveUserMessagesComponentPatch(patch));
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();

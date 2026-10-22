@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { fgAnsi, getColorMode, paintFg } from "../shared/color";
+import { fgAnsi, getColorMode, paintFg } from "../shared/color.ts";
 
 export type RGB = readonly [number, number, number];
 

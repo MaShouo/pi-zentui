@@ -67,6 +67,30 @@ describe("pure user-message styles", () => {
 		expect(lines.every((line) => visibleWidth(line) === 12)).toBe(true);
 	});
 
+	it.each(["nerd", "ascii"])("honors owner message rails in Sakura %s mode", (mode) => {
+		const theme = Object.assign(ansiTheme(), { name: "sakura-macaron" }) as Theme;
+		for (const glyph of ["┃", "▌", "|"]) {
+			const config = mergeConfig(
+				{ icons: { mode }, components: { userMessages: { rail: glyph } } },
+				{},
+			);
+			const lines = renderUserMessageStyle({ text: "Hello", width: 12, theme, config }).map(plain);
+			expect(lines[0]).toBe("─".repeat(12));
+			for (const line of lines.slice(1, -1)) {
+				expect(line.startsWith(`${glyph} `)).toBe(true);
+				expect(line.endsWith(` ${glyph}`)).toBe(true);
+				expect(visibleWidth(line)).toBe(12);
+			}
+		}
+	});
+
+	it("invalidates rounded message chrome when an inherited ASCII rail becomes explicit", () => {
+		const inherited = mergeConfig({ icons: { mode: "nerd", rail: "|" } }, {});
+		const explicit = structuredClone(inherited);
+		explicit.components.userMessages.rail = "|";
+		expect(userMessageStyleCacheKey(inherited)).not.toBe(userMessageStyleCacheKey(explicit));
+	});
+
 	it("keeps narrow Sakura frames closed without consuming the content cells", () => {
 		const theme = Object.assign(ansiTheme(), { name: "sakura-macaron" }) as Theme;
 		for (const width of [3, 4, 5]) {

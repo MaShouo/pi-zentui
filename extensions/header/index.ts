@@ -1,8 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { fgAnsi, getColorMode, syncColorMode } from "../shared/color";
+import { fgAnsi, getColorMode, syncColorMode } from "../shared/color.ts";
 
-import { sampleSakuraGradient } from "../zentui/gradient";
+import { sampleSakuraGradient } from "../zentui/gradient.ts";
 
 const LABEL = "◈  SAKURA CYBERDECK  ◈";
 /** Fixed blank rows above the artwork. Deliberately independent of terminal height. */

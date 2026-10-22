@@ -6,18 +6,23 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { isSakuraMacaronVisuals, renderSakuraFrameGradient, renderSakuraSolid } from "./gradient";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
+import {
+	isSakuraMacaronVisuals,
+	renderSakuraFrameGradient,
+	renderSakuraSolid,
+} from "./gradient.ts";
+import { resolveUserMessageRailGlyph } from "./rail-glyph.ts";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallbackStrict,
-} from "./style";
+} from "./style.ts";
 import {
 	sanitizeRenderedUserMessageLines,
 	sanitizeUserMessageSourceText,
-} from "./user-message-osc";
+} from "./user-message-osc.ts";
 
 export type UserMessageStyleRenderInput = {
 	text: string;
@@ -127,25 +132,29 @@ function border(theme: Theme | undefined, config: ZentuiConfig, text: string): s
 }
 
 function renderRail(theme: Theme | undefined, config: ZentuiConfig): string {
-	return `${accent(theme, config, config.icons.rail)} `;
+	return `${accent(theme, config, resolveUserMessageRailGlyph(config))} `;
 }
 
 function renderFramed(input: UserMessageStyleRenderInput): string[] {
 	const { width, theme, config } = input;
 	if (width <= 0) return [""];
 	const sakura = isSakuraMacaronVisuals(componentColor(config, "userMessages", "border"), theme);
+	const railGlyph = resolveUserMessageRailGlyph(config);
 	// Box drawing needs no Nerd Font, even when Auto selects ASCII icons.
 	const rounded =
 		width >= 3 &&
 		sakura &&
 		config.icons.mode !== "ascii" &&
-		(config.icons.rail === "|" || config.icons.rail === "│");
+		(railGlyph === "│" ||
+			(railGlyph === "|" &&
+				config.components.userMessages.rail === undefined &&
+				config.components.userMessages.asciiRail === undefined));
 	const padding = width >= 5 ? " " : "";
 	const rail = rounded ? `${accent(theme, config, "│")}${padding}` : renderRail(theme, config);
 	const rightRail = rounded
 		? `${padding}${border(theme, config, "│")}`
-		: sakura && config.icons.rail.length > 0
-			? ` ${border(theme, config, config.icons.rail)}`
+		: sakura && railGlyph.length > 0
+			? ` ${border(theme, config, railGlyph)}`
 			: "";
 	const chromeWidth = visibleWidth(rail) + visibleWidth(rightRail);
 	const contentWidth = Math.max(1, width - chromeWidth);
@@ -223,10 +232,12 @@ export function userMessageStyleCacheKey(config: ZentuiConfig): string {
 			return [
 				"framed",
 				config.icons.mode === "ascii" ? "ascii" : "rounded",
+				messages.rail ?? "<inherit>",
+				messages.asciiRail ?? "<inherit>",
 				messages.colorSource,
 				componentColor(config, "userMessages", "accent") ?? "<inherit>",
 				componentColor(config, "userMessages", "border") ?? "<inherit>",
-				config.icons.rail,
+				resolveUserMessageRailGlyph(config),
 			].join("\0");
 		case "framed-copy-friendly":
 			return [
@@ -240,7 +251,7 @@ export function userMessageStyleCacheKey(config: ZentuiConfig): string {
 				messages.colorSource,
 				componentColor(config, "userMessages", "border") ?? "<inherit>",
 				componentColor(config, "userMessages", "accent") ?? "<inherit>",
-				config.icons.rail,
+				resolveUserMessageRailGlyph(config),
 			].join("\0");
 		case "labeled":
 			return [

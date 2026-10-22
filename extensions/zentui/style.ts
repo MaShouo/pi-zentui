@@ -1,6 +1,6 @@
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { ColorSource, ColorSpec } from "./config";
-import { SAKURA_MACARON_GRADIENT } from "./gradient";
+import type { ColorSource, ColorSpec } from "./config.ts";
+import { SAKURA_MACARON_GRADIENT } from "./gradient.ts";
 
 type ThemeLike = {
 	fg(color: string, text: string): string;

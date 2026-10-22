@@ -10,14 +10,14 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { type ColorOwner, componentColor } from "./component-colors";
+import { type ColorOwner, componentColor } from "./component-colors.ts";
 import {
 	type ComponentSettingsDeps,
 	confirmComponentMigration,
 	editComponentColors,
 	editCustomValueColors,
 	editTurnSummaryFormat,
-} from "./component-settings";
+} from "./component-settings.ts";
 import {
 	type AccentRailEditorStyleConfig,
 	type ColorSource,
@@ -65,35 +65,36 @@ import {
 	type WorkingLinePlacement,
 	type WorkingLineSpinner,
 	type WorkingLineTextAnimation,
-} from "./config";
-import { prepareEditorTextForCustomUi } from "./editor-transfer";
-import { sanitizeExtensionStatusText } from "./extension-status";
+} from "./config.ts";
+import { prepareEditorTextForCustomUi } from "./editor-transfer.ts";
+import { sanitizeExtensionStatusText } from "./extension-status.ts";
 import {
 	extensionStatusChoice,
 	extensionStatusChoiceLabels,
 	extensionStatusDefaultChoice,
-} from "./extension-status-settings";
-import { isIconMode } from "./icons";
-import { editMinimalistTemplates, editMinimalistVariables } from "./minimalist-settings";
+} from "./extension-status-settings.ts";
+import { isIconMode } from "./icons.ts";
+import { editMinimalistTemplates, editMinimalistVariables } from "./minimalist-settings.ts";
 import {
 	componentPresets,
 	getComponentPreset,
 	matchingComponentPreset,
 	type PresetId,
-} from "./presets";
-import type { SessionLifecycle } from "./session-lifecycle";
-import { settingsKeys } from "./settings-keys";
-import { selectOwnedSetting } from "./settings-list-selection";
+} from "./presets.ts";
+import { RAIL_GLYPH_CHOICES, RAIL_GLYPH_INHERIT } from "./rail-glyph.ts";
+import type { SessionLifecycle } from "./session-lifecycle.ts";
+import { settingsKeys } from "./settings-keys.ts";
+import { selectOwnedSetting } from "./settings-list-selection.ts";
 import {
 	renderEditorSettingsPreview,
 	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_WIDTH,
-} from "./settings-previews";
-import { EDITOR_BORDER_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
-import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
-import type { ToolDisplayStatus } from "./tool-display/controller";
-import { toolDisplayPresetPatch } from "./tool-display/presets";
+} from "./settings-previews.ts";
+import { EDITOR_BORDER_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style.ts";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status.ts";
+import type { ToolDisplayStatus } from "./tool-display/controller.ts";
+import { toolDisplayPresetPatch } from "./tool-display/presets.ts";
 import {
 	BASH_OUTPUT_MODES,
 	BUILTIN_TOOL_NAMES,
@@ -104,13 +105,13 @@ import {
 	SEARCH_OUTPUT_MODES,
 	TOOL_DISPLAY_PRESETS,
 	type ToolDisplayConfig,
-} from "./tool-display/types";
+} from "./tool-display/types.ts";
 import {
 	buildWorkingLinePreviewFrames,
 	normalizeWorkingLineMessages,
 	remapWorkingLineTextTick,
 	type WorkingLineFrames,
-} from "./working-line";
+} from "./working-line.ts";
 
 const colorSourceValues: ColorSource[] = ["theme", "terminal"];
 const extensionStatusPlacementValues = ["Left", "Middle", "Right", "Off"];
@@ -144,6 +145,7 @@ const footerStyleLabels: Record<FooterStyle, string> = {
 const footerStyleValues = Object.values(footerStyleLabels);
 const completionMenuValues: CompletionMenuStyle[] = ["palette", "native"];
 const accentRailSurfaceValues = ["filled", "transparent"];
+const railGlyphValues = [RAIL_GLYPH_INHERIT, ...RAIL_GLYPH_CHOICES];
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
 const minimalistSeparatorValues: MinimalistEditorSeparator[] = ["dash", "dot"];
@@ -227,10 +229,20 @@ type EditorPatch = Partial<
 		| "viewportIndicators"
 		| "codexQuota"
 	>
->;
+> & {
+	/** null removes the rail override and resumes the style's own rail. */
+	rail?: string | null;
+	/** null removes the rail override and resumes the style's own rail. */
+	asciiRail?: string | null;
+};
 type UserMessagesPatch = Partial<
 	Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">
->;
+> & {
+	/** null removes the rail override and resumes the shared icon rail. */
+	rail?: string | null;
+	/** null removes the rail override and resumes the shared icon rail. */
+	asciiRail?: string | null;
+};
 type FooterPatch = Partial<
 	Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel" | "codexQuota">
 >;
@@ -652,6 +664,14 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			currentValue: editorStyleLabel(editor.style),
 			values: editorStyleValues,
 		},
+		{
+			id: "editorRailGlyph",
+			label: "Rail glyph",
+			description:
+				"Vertical rail character drawn beside the editor input, for editor styles that draw a rail (Opencode, Accent Rail). Default resumes the inherited rail. Previous messages keep their own rail.",
+			currentValue: editor.rail ?? RAIL_GLYPH_INHERIT,
+			values: railGlyphValues,
+		},
 		...(editor.style === "accent-rail" ? buildAccentRailEditorStyleItems(config) : []),
 		{
 			id: "editorColorSource",
@@ -839,6 +859,14 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 			description: "Use Pi theme colors or terminal palette styles.",
 			currentValue: messages.colorSource,
 			values: colorSourceValues,
+		},
+		{
+			id: "userMessagesRailGlyph",
+			label: "Rail glyph",
+			description:
+				"Vertical rail character drawn beside previous messages (framed, compact). Default keeps the shared icon rail. The editor keeps its own rail.",
+			currentValue: messages.rail ?? RAIL_GLYPH_INHERIT,
+			values: railGlyphValues,
 		},
 	];
 }
@@ -2053,6 +2081,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											notifyChange("Editor viewport indicators", newValue);
 											return;
 										}
+										if (id === "editorRailGlyph" && railGlyphValues.includes(newValue)) {
+											const glyph = newValue === RAIL_GLYPH_INHERIT ? null : newValue;
+											setEditor({ rail: glyph, asciiRail: glyph }, ctx);
+											settingsList.updateValue(id, glyph ?? RAIL_GLYPH_INHERIT);
+											notifyChange("Editor rail", newValue);
+											return;
+										}
 										if (
 											id === "opencodeCompletionMenu" &&
 											(newValue === "native" || newValue === "palette")
@@ -2149,6 +2184,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											setMessages({ colorSource: newValue }, ctx);
 											settingsList.updateValue(id, newValue);
 											notifyChange("Message colors", newValue);
+											return;
+										}
+										if (id === "userMessagesRailGlyph" && railGlyphValues.includes(newValue)) {
+											const glyph = newValue === RAIL_GLYPH_INHERIT ? null : newValue;
+											setMessages({ rail: glyph, asciiRail: glyph }, ctx);
+											settingsList.updateValue(id, glyph ?? RAIL_GLYPH_INHERIT);
+											notifyChange("Message rail", newValue);
 											return;
 										}
 										if (id.startsWith("toolDisplay")) {

@@ -13,9 +13,9 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { fgAnsi, getColorMode, paintFg, type RGB, syncColorMode } from "../shared/color";
-import { loadConfig } from "../zentui/config";
-import { SAKURA_MACARON_STOPS, splitGraphemes } from "../zentui/gradient";
+import { fgAnsi, getColorMode, paintFg, type RGB, syncColorMode } from "../shared/color.ts";
+import { loadConfig } from "../zentui/config.ts";
+import { SAKURA_MACARON_STOPS, splitGraphemes } from "../zentui/gradient.ts";
 
 type SpinnerMode = "requesting" | "thinking" | "responding" | "tool-input" | "tool-use";
 export type RunOutcome = "completed" | "aborted" | "error";
