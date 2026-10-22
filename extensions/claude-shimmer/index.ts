@@ -12,7 +12,9 @@
  * token tween while the agent streams; zero timers when idle; no output outside TUI.
  */
 
+import { stripVTControlCharacters } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { fgAnsi, getColorMode, paintFg, type RGB, syncColorMode } from "../shared/color.ts";
 import { loadConfig } from "../zentui/config.ts";
 import { SAKURA_MACARON_STOPS, splitGraphemes } from "../zentui/gradient.ts";
@@ -289,6 +291,8 @@ const STALL_FADE_MS = 2_000;
 const THINKING_GLOW_DELAY_MS = 1_800;
 const THINKING_GLOW_PERIOD_MS = 1_600;
 const TOOL_PULSE_PERIOD_MS = 1_400;
+// Leave room for Pi's editor-border chrome, as in upstream shimmer v1.0.7.
+const BORDER_RESERVE_COLS = 12;
 
 // ─── Pure helpers (exported for tests) ────────────────────────────
 
@@ -328,6 +332,43 @@ export function formatTokenCount(n: number): string {
 function animatedDots(tick: number): string {
 	const cycle = [".  ", ".. ", "..."] as const;
 	return cycle[Math.floor(tick / DOTS_EVERY_TICKS) % cycle.length] ?? "...";
+}
+
+/** Keep the working status within the border, dropping effort then time before tokens. */
+export function fitWorkingMessage(
+	glyph: string,
+	text: string,
+	{ effort, tokens, elapsed }: { effort?: string; tokens: string; elapsed: string },
+	columns = 80,
+): string {
+	const budget = Math.max(
+		0,
+		Math.floor(Number.isFinite(columns) ? columns : 80) - BORDER_RESERVE_COLS,
+	);
+	if (budget === 0) return "";
+	const clip = (value: string, width: number, ellipsis: string) => {
+		const clipped = truncateToWidth(value, width, ellipsis);
+		// Pi's truncation helper appends an SGR reset even to uncolored text.
+		return getColorMode() === "none" ? stripVTControlCharacters(clipped) : clipped;
+	};
+	const prefix = `${glyph} `;
+	const prefixWidth = visibleWidth(prefix);
+	const bodyWidth = prefixWidth + visibleWidth(text);
+	const candidates = [...(effort ? [[effort, tokens, elapsed]] : []), [tokens, elapsed], [tokens]];
+	const huds = candidates.map(
+		(parts) => `${paintFg(MUTED, "( ")}${parts.join(paintFg(MUTED, " · "))}${paintFg(MUTED, " )")}`,
+	);
+	for (const hud of huds) {
+		if (bodyWidth + 1 + visibleWidth(hud) <= budget) return `${prefix}${text} ${hud}`;
+	}
+	const tokenHud = huds[huds.length - 1] ?? "";
+	const labelBudget = budget - prefixWidth - 1 - visibleWidth(tokenHud);
+	// Long subagent labels must not crowd the live token reading off the right edge.
+	if (labelBudget >= 1) {
+		return `${prefix}${clip(text, labelBudget, "…")} ${tokenHud}`;
+	}
+	// At very small widths, retain the spinner and as much of the status as fits.
+	return `${clip(prefix, budget, "")}${clip(text, Math.max(0, budget - prefixWidth), "…")}`;
 }
 
 export type AssistantTokenMessage = {
@@ -709,17 +750,21 @@ export default function claudeShimmer(pi: ExtensionAPI) {
 			verbText = colorSweep(text, tick, reverse, stallAmount(now), ROSE);
 		}
 
-		const parts: string[] = [];
-		const effort = effortTag();
-		if (effort) parts.push(effort);
 		const target = tokenTarget();
 		const arrow = mode === "requesting" ? "↑" : "↓";
-		parts.push(
-			paintFg(SKY, `${arrow} ${target.estimated ? "~" : ""}${formatTokenCount(displayedTokens)}`),
+		return fitWorkingMessage(
+			glyph,
+			verbText,
+			{
+				effort: effortTag(),
+				tokens: paintFg(
+					SKY,
+					`${arrow} ${target.estimated ? "~" : ""}${formatTokenCount(displayedTokens)}`,
+				),
+				elapsed: paintFg(MUTED, formatDigital(now - runStart)),
+			},
+			process.stdout.columns,
 		);
-		parts.push(paintFg(MUTED, formatDigital(now - runStart)));
-		const hud = `${paintFg(MUTED, "( ")}${parts.join(paintFg(MUTED, " · "))}${paintFg(MUTED, " )")}`;
-		return `${glyph} ${verbText} ${hud}`;
 	}
 
 	function updateDisplay() {

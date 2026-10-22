@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, test, vi } from "vitest";
 
 const ownership = vi.hoisted(() => ({ enabled: false }));
@@ -184,13 +185,22 @@ async function streamText(h: ReturnType<typeof harness>, text: string, usageOutp
 	});
 }
 
+const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+
 beforeEach(() => {
+	Object.defineProperty(process.stdout, "columns", {
+		configurable: true,
+		writable: true,
+		value: 80,
+	});
 	vi.useFakeTimers();
 	vi.setSystemTime(1_000_000);
 	ownership.enabled = false;
 });
 
 afterEach(async () => {
+	if (originalColumns) Object.defineProperty(process.stdout, "columns", originalColumns);
+	else Reflect.deleteProperty(process.stdout, "columns");
 	vi.restoreAllMocks();
 	vi.useRealTimers();
 	setColorMode("truecolor");
@@ -403,6 +413,43 @@ test("handoff at the next turn stops shimmer without resetting Working line", as
 	await h.emit("agent_settled");
 	assert.equal(h.messages.length, messages);
 	assert.equal(h.indicators.length, indicators);
+	assert.equal(vi.getTimerCount(), 0);
+});
+
+test("resizing fits live subagent status without losing tokens, labels or the single clock", async () => {
+	process.stdout.columns = 140;
+	const h = harness();
+	await h.emit("agent_start");
+	await streamText(h, "abcd".repeat(500), 1);
+	vi.advanceTimersByTime(TICK_MS * 30);
+	for (const [id, description] of [
+		["one", "检查中文布局 👩‍💻"],
+		["two", "review results"],
+	]) {
+		await h.emit("tool_execution_start", {
+			toolName: "subagent",
+			toolCallId: id,
+			args: { description },
+		});
+	}
+	assert.match(h.last(), /Subagents \(2\): 检查中文布局 👩‍💻 · review results/);
+	assert.match(h.last(), /HIGH · ↓ ~500 tokens ·/);
+	process.stdout.columns = 48;
+	vi.advanceTimersByTime(TICK_MS);
+	assert.ok(visibleWidth(h.messages.at(-1) ?? "") <= 36);
+	assert.match(h.last(), /Subagents \(2\)/);
+	assert.match(h.last(), /… \( ↓ ~500 tokens \)/);
+	assert.doesNotMatch(h.last(), /HIGH|00:/);
+	process.stdout.columns = 20;
+	vi.advanceTimersByTime(TICK_MS);
+	assert.ok(visibleWidth(h.messages.at(-1) ?? "") <= 8);
+	assert.doesNotMatch(h.last(), /tokens|\(/);
+	process.stdout.columns = 140;
+	vi.advanceTimersByTime(TICK_MS);
+	assert.match(h.last(), /Subagents \(2\): 检查中文布局 👩‍💻 · review results/);
+	assert.match(h.last(), /HIGH · ↓ ~500 tokens ·/);
+	assert.equal(vi.getTimerCount(), 1);
+	await h.emit("session_shutdown");
 	assert.equal(vi.getTimerCount(), 0);
 });
 

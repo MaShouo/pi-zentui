@@ -1,13 +1,78 @@
-import { describe, expect, it } from "vitest";
+import { stripVTControlCharacters } from "node:util";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+	colorSweep,
 	estimateOutputTokens,
 	estimateTextTokens,
+	fitWorkingMessage,
 	formatActiveSubagentStatus,
 	formatTokenCount,
 	getSubagentStatusLabel,
 	isSubagentToolName,
 	reportedOutputTokens,
 } from "../extensions/claude-shimmer/index";
+
+import { paintFg, setColorMode } from "../extensions/shared/color";
+
+afterEach(() => setColorMode("truecolor"));
+
+describe("Sakura Claude Shimmer working status width", () => {
+	const parts = { effort: "HIGH", tokens: "↓ ~128 tokens", elapsed: "00:12" };
+	const renderStatus = (columns?: number) =>
+		stripVTControlCharacters(fitWorkingMessage("✻", "Working...", parts, columns));
+
+	it("retains the complete HUD when it fits, then drops effort and elapsed time", () => {
+		expect(renderStatus(80)).toBe("✻ Working... ( HIGH · ↓ ~128 tokens · 00:12 )");
+		expect(renderStatus(56)).toBe("✻ Working... ( ↓ ~128 tokens · 00:12 )");
+		expect(renderStatus(49)).toBe("✻ Working... ( ↓ ~128 tokens )");
+		expect(renderStatus(41)).toBe("✻ Working.… ( ↓ ~128 tokens )");
+	});
+
+	it("keeps only the spinner and truncated status when even the token HUD cannot fit", () => {
+		expect(renderStatus(22)).toBe("✻ Working…");
+		expect(renderStatus(13)).toBe("✻");
+		for (const columns of [-1, 0, 1, 12]) expect(renderStatus(columns)).toBe("");
+	});
+
+	it("uses an 80-column fallback when terminal width is unavailable or invalid", () => {
+		expect(renderStatus()).toBe(renderStatus(80));
+		expect(renderStatus(Number.NaN)).toBe(renderStatus(80));
+		expect(renderStatus(Number.POSITIVE_INFINITY)).toBe(renderStatus(80));
+	});
+
+	it("keeps tokens and time when no effort tag is available", () => {
+		expect(
+			stripVTControlCharacters(
+				fitWorkingMessage("✻", "Working...", { ...parts, effort: undefined }, 50),
+			),
+		).toBe("✻ Working... ( ↓ ~128 tokens · 00:12 )");
+	});
+
+	it.each(["truecolor", "256color", "none"] as const)(
+		"fits ANSI and wide grapheme labels at every width in %s mode",
+		(mode) => {
+			setColorMode(mode);
+			const glyph = paintFg([255, 143, 163], "✻");
+			const text = colorSweep("Subagents (2): 检查中文 👩‍💻 é · 审阅结果 🇨🇳", 5, false);
+			const coloredParts = {
+				effort: paintFg([255, 143, 163], parts.effort),
+				tokens: paintFg([153, 200, 255], parts.tokens),
+				elapsed: parts.elapsed,
+			};
+			for (let columns = 0; columns <= 160; columns++) {
+				const output = fitWorkingMessage(glyph, text, coloredParts, columns);
+				const plain = stripVTControlCharacters(output);
+				expect(visibleWidth(output)).toBeLessThanOrEqual(Math.max(0, columns - 12));
+				expect(plain.isWellFormed()).toBe(true);
+				if (plain.includes("↓")) {
+					expect(plain).toMatch(/\( (?:HIGH · )?↓ ~128 tokens(?: · 00:12)? \)$/);
+				}
+				if (mode === "none") expect(output).not.toContain("\x1b");
+			}
+		},
+	);
+});
 
 describe("Sakura Claude Shimmer token formatting", () => {
 	it("formats singular, grouped, and compact token counts", () => {

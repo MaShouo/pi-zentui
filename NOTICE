@@ -5,6 +5,8 @@ License: MIT. Full license text: licenses/pi-zentui-MIT.txt
 It also includes modified Sakura-macaron code derived from pi-claude-shimmer
 by ouzhenkun.
 Original project: https://github.com/ouzhenkun/pi-claude-shimmer
+Working-status width budgeting follows v1.0.7 (4fbacfe), adapted for Sakura
+HUD priorities, Unicode display widths, and concurrent subagent labels.
 License: MIT. Full license text: licenses/pi-claude-shimmer-MIT.txt
 
 Sakura additions include the Sakura Macaron theme, header, Matrix widget, and
